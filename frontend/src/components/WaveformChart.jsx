@@ -3,25 +3,26 @@ import { useEffect, useRef, useState } from 'react';
 const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
   const canvasRef = useRef(null);
   
-  // Data buffer - stores ALL incoming data (initialized as array)
+  // Data buffer - stores incoming data in a circular buffer
   const dataBufferRef = useRef([]);
   
-  // Display buffer - what we're currently showing (initialized as array)
+  // Display buffer - what we're currently showing
   const displayBufferRef = useRef([]);
   const displayIndexRef = useRef(0);
   
   const animationRef = useRef(null);
   const lastFrameTimeRef = useRef(Date.now());
-  const lastDataUpdateRef = useRef(Date.now());
+  const lastDataReceivedRef = useRef(Date.now());
   
   const [isBuffering, setIsBuffering] = useState(true);
   const [hasData, setHasData] = useState(false);
   const [waveformType, setWaveformType] = useState('ECG');
   
   // Configuration
-  const MIN_BUFFER_SIZE = 400;        // Start rendering sooner
-  const DISPLAY_WIDTH = 250;          // Even fewer points = wider, clearer waveforms
-  const POINTS_PER_SECOND = 40;       // Slightly slower for better readability
+  const MIN_BUFFER_SIZE = 400;
+  const DISPLAY_WIDTH = 250;
+  const POINTS_PER_SECOND = 40;
+  const MAX_BUFFER_SIZE = 10000; // Prevent memory issues
 
   // Detect waveform type from data
   useEffect(() => {
@@ -35,13 +36,12 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
     }
   }, [data]);
 
-  // Better smoothing - balance between quality and performance
+  // Smoothing function
   const smoothData = (dataArray, windowSize = 2, passes = 1) => {
     if (dataArray.length < windowSize || windowSize < 2) return dataArray;
     
     let result = [...dataArray];
     
-    // Apply smoothing passes
     for (let pass = 0; pass < passes; pass++) {
       const smoothed = new Array(result.length);
       
@@ -65,7 +65,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
     return result;
   };
 
-  // Step 1: COLLECT data from Kafka
+  // COLLECT data from Kafka - this keeps running as new data arrives
   useEffect(() => {
     if (data && data.waveform && data.waveform.data) {
       let newData = [];
@@ -85,39 +85,49 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
       }
 
       if (newData.length > 0) {
-        // Apply different smoothing for each waveform type
+        // Apply smoothing
         if (waveformType === 'SPO2') {
-          // Very aggressive smoothing for clean SpO2 - like real pulse oximeters
-          newData = smoothData(newData, 6, 5); // Window=6, 5 passes = very smooth pulse waves
+          newData = smoothData(newData, 6, 5);
         } else {
-          // Moderate smoothing for ECG to remove noise but preserve PQRST morphology
-          newData = smoothData(newData, 2, 2); // Window=2, 2 passes = smooth but sharp
+          newData = smoothData(newData, 2, 2);
         }
         
         // Add to buffer
         dataBufferRef.current = [...dataBufferRef.current, ...newData];
         
-        // Keep buffer reasonable size
-        if (dataBufferRef.current.length > 5000) {
-          dataBufferRef.current = dataBufferRef.current.slice(-5000);
+        // Keep buffer at reasonable size - use circular buffer concept
+        if (dataBufferRef.current.length > MAX_BUFFER_SIZE) {
+          const overflow = dataBufferRef.current.length - MAX_BUFFER_SIZE;
+          dataBufferRef.current = dataBufferRef.current.slice(overflow);
+          
+          // Adjust display index to account for removed data
+          displayIndexRef.current = Math.max(0, displayIndexRef.current - overflow);
         }
+        
+        // Update last data received time
+        lastDataReceivedRef.current = Date.now();
         
         // Check if we have enough data to start rendering
         if (dataBufferRef.current.length >= MIN_BUFFER_SIZE) {
           setIsBuffering(false);
           setHasData(true);
           
-          // Initialize display buffer if empty - show most recent data
+          // Initialize display buffer if empty
           if (displayBufferRef.current.length === 0) {
             displayBufferRef.current = dataBufferRef.current.slice(-DISPLAY_WIDTH);
-            displayIndexRef.current = 0; // Reset counter
+            displayIndexRef.current = Math.max(0, dataBufferRef.current.length - DISPLAY_WIDTH);
           }
+        }
+        
+        // Log data reception every 1000 data points
+        if (dataBufferRef.current.length % 1000 === 0) {
+          console.log(`[${data?.information?.deviceId}] Buffer size: ${dataBufferRef.current.length}, Display at: ${displayIndexRef.current}`);
         }
       }
     }
-  }, [data, MIN_BUFFER_SIZE, DISPLAY_WIDTH, waveformType]);
+  }, [data, MIN_BUFFER_SIZE, DISPLAY_WIDTH, waveformType, MAX_BUFFER_SIZE]);
 
-  // Step 2: RENDER from buffer at controlled speed
+  // RENDER animation loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -136,9 +146,10 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
       
       frameCount++;
       
-      // Log every 600 frames (~10 seconds at 60fps) to track if animation is running
+      // Log every 600 frames (~10 seconds at 60fps)
       if (frameCount % 600 === 0) {
-        console.log(`[${data?.information?.deviceId || 'Unknown'}] Frame ${frameCount}, DataBuffer: ${dataBufferRef.current.length}, Display: ${displayBufferRef.current.length}, Type: ${waveformType}`);
+        const timeSinceData = Math.floor((currentTime - lastDataReceivedRef.current) / 1000);
+        console.log(`[${data?.information?.deviceId || 'Unknown'}] Frame ${frameCount}, Buffer: ${dataBufferRef.current.length}, Display: ${displayBufferRef.current.length}, Index: ${displayIndexRef.current}, Last data: ${timeSinceData}s ago`);
       }
 
       // Enable high-quality rendering
@@ -151,18 +162,26 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
       // Calculate how many points to advance
       const pointsToAdvance = Math.floor(accumulatedTime * POINTS_PER_SECOND);
       
-      if (pointsToAdvance > 0) {
+      if (pointsToAdvance > 0 && !isBuffering) {
         accumulatedTime = 0;
         
-        // Advance display buffer
-        if (!isBuffering && displayIndexRef.current < dataBufferRef.current.length) {
-          const stepSize = waveformType === 'SPO2' ? 2 : 1; // Skip every other point for SpO2
-          
-          for (let i = 0; i < pointsToAdvance; i++) {
-            if (displayIndexRef.current < dataBufferRef.current.length) {
+        const stepSize = waveformType === 'SPO2' ? 2 : 1;
+        
+        for (let i = 0; i < pointsToAdvance; i++) {
+          // KEY FIX: Always cycle through available data
+          if (dataBufferRef.current.length > 0) {
+            // If we've reached the end, wrap around to show most recent data
+            if (displayIndexRef.current >= dataBufferRef.current.length) {
+              // Start from recent data again
+              displayIndexRef.current = Math.max(0, dataBufferRef.current.length - DISPLAY_WIDTH);
+              displayBufferRef.current = dataBufferRef.current.slice(displayIndexRef.current, displayIndexRef.current + DISPLAY_WIDTH);
+            } else {
+              // Normal progression
               displayBufferRef.current.shift();
-              displayBufferRef.current.push(dataBufferRef.current[displayIndexRef.current]);
-              displayIndexRef.current += stepSize;
+              if (displayIndexRef.current < dataBufferRef.current.length) {
+                displayBufferRef.current.push(dataBufferRef.current[displayIndexRef.current]);
+                displayIndexRef.current += stepSize;
+              }
             }
           }
         }
@@ -172,7 +191,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, width, canvasHeight);
 
-      // Add subtle gradient background for depth
+      // Add gradient background
       if (!isBuffering && hasData) {
         const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
         gradient.addColorStop(0, 'rgba(10, 20, 30, 0.3)');
@@ -182,12 +201,11 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         ctx.fillRect(0, 0, width, canvasHeight);
       }
 
-      // Draw grid (like ECG paper)
-      // Minor grid lines (every 20px)
+      // Draw grid
       ctx.strokeStyle = '#1a2332';
       ctx.lineWidth = 0.5;
 
-      // Vertical grid lines
+      // Vertical grid
       for (let x = 0; x < width; x += 20) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
@@ -195,7 +213,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         ctx.stroke();
       }
 
-      // Horizontal grid lines
+      // Horizontal grid
       for (let y = 0; y < canvasHeight; y += 20) {
         ctx.beginPath();
         ctx.moveTo(0, y);
@@ -203,7 +221,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         ctx.stroke();
       }
       
-      // Major grid lines (every 100px) - slightly brighter
+      // Major grid lines
       ctx.strokeStyle = '#2a3342';
       ctx.lineWidth = 1;
       
@@ -223,7 +241,6 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
 
       // Draw waveform
       if (isBuffering) {
-        // Show buffering state
         const centerY = canvasHeight / 2;
         ctx.fillStyle = '#4a5568';
         ctx.font = '12px monospace';
@@ -232,7 +249,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         const progress = Math.min(100, Math.floor((dataBufferRef.current.length / MIN_BUFFER_SIZE) * 100));
         ctx.fillText(`Buffering... ${progress}%`, width / 2, centerY);
         
-        // Draw progress bar
+        // Progress bar
         const barWidth = 200;
         const barHeight = 4;
         const barX = (width - barWidth) / 2;
@@ -245,7 +262,6 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         ctx.fillRect(barX, barY, barWidth * (progress / 100), barHeight);
         
       } else if (hasData && displayBufferRef.current.length > 0) {
-        // Get valid data for normalization
         const validData = displayBufferRef.current.filter(v => v !== null && !isNaN(v));
         
         if (validData.length > 0) {
@@ -253,26 +269,21 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
           const max = Math.max(...validData);
           const range = max - min || 1;
           
-          // Better normalization for medical waveforms
           const normalize = (val) => {
             if (val === null || isNaN(val)) return canvasHeight / 2;
             
-            // Use more of the vertical space for better visibility
             const normalized = (val - min) / range;
             
-            // Different scaling for different waveform types
             if (waveformType === 'SPO2') {
-              // SpO2: use 75% of height, centered
               return canvasHeight - (normalized * (canvasHeight * 0.75)) - (canvasHeight * 0.125);
             } else {
-              // ECG: use 85% of height for maximum clarity
               return canvasHeight - (normalized * (canvasHeight * 0.85)) - (canvasHeight * 0.075);
             }
           };
 
-          // Draw waveform with anti-aliasing for smooth curves
+          // Draw waveform
           ctx.strokeStyle = color;
-          ctx.lineWidth = waveformType === 'SPO2' ? 2.5 : 2.2; // Slightly thicker for better visibility
+          ctx.lineWidth = waveformType === 'SPO2' ? 2.5 : 2.2;
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
           
@@ -280,9 +291,8 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
 
           const step = width / displayBufferRef.current.length;
 
-          // Draw waveform lines
           if (waveformType === 'SPO2') {
-            // Smooth curves for SpO2 using simplified quadratic
+            // Smooth curves for SpO2
             for (let i = 0; i < displayBufferRef.current.length; i++) {
               const x = i * step;
               const y = normalize(displayBufferRef.current[i]);
@@ -290,7 +300,6 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
               if (i === 0) {
                 ctx.moveTo(x, y);
               } else if (i % 2 === 0 && i > 1) {
-                // Apply curve every other point for smooth appearance without too much processing
                 const prevX = (i - 1) * step;
                 const prevY = normalize(displayBufferRef.current[i - 1]);
                 const cpX = (prevX + x) / 2;
@@ -301,7 +310,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
               }
             }
           } else {
-            // ECG with smooth lines
+            // ECG with straight lines
             for (let i = 0; i < displayBufferRef.current.length; i++) {
               const x = i * step;
               const y = normalize(displayBufferRef.current[i]);
@@ -316,12 +325,11 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
 
           ctx.stroke();
 
-          // Add stronger glow effect for better visibility
+          // Glow effect
           ctx.shadowBlur = 12;
           ctx.shadowColor = color;
           ctx.stroke();
           
-          // Double glow for extra depth
           ctx.shadowBlur = 6;
           ctx.stroke();
           ctx.shadowBlur = 0;
@@ -355,7 +363,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [color, height, isBuffering, hasData, MIN_BUFFER_SIZE, POINTS_PER_SECOND, DISPLAY_WIDTH, waveformType]);
+  }, [color, height, isBuffering, hasData, MIN_BUFFER_SIZE, POINTS_PER_SECOND, DISPLAY_WIDTH, waveformType, data]);
 
   return (
     <canvas
@@ -365,7 +373,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
       className="w-full"
       style={{ 
         imageRendering: 'auto',
-        filter: 'contrast(1.1) brightness(1.05)' // Subtle enhancement
+        filter: 'contrast(1.1) brightness(1.05)'
       }}
     />
   );
