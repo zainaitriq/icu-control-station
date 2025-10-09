@@ -1,0 +1,27 @@
+{
+  "name": "icu-control-station",
+  "version": "1.0.0",
+  "description": "ICU Medical Monitor - Real-time Patient Monitoring Dashboard",
+  "scripts": {
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "dev": "concurrently --names \"BRIDGE,CONSUMER,FRONTEND\" --prefix-colors \"bgBlue.bold,bgMagenta.bold,bgGreen.bold\" \"npm run dev:bridge\" \"npm run dev:consumer\" \"npm run dev:frontend\"",
+    "dev:bridge": "cd backend && npm run bridge",
+    "dev:consumer": "cd backend && npm run consumer",
+    "dev:frontend": "cd frontend && npm run dev",
+    "status": "cd backend && npm run status",
+    "test-producer": "cd backend && npm run test-producer"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "ICU",
+    "medical",
+    "monitoring",
+    "dashboard",
+    "kafka",
+    "websocket"
+  ],
+  "author": "",
+  "license": "ISC"
+}
