@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Activity, Wifi, WifiOff, Clock, Database } from 'lucide-react';
+import { Activity, Wifi, WifiOff, Clock, Database, Bell, AlertTriangle } from 'lucide-react';
 import { useWebSocket } from './hooks/useWebSocket';
 import PatientCard from './components/PatientCard';
+import { usePatientAlerts } from './hooks/usePatientAlerts';
 
 function App() {
   const { isConnected, patients, waveforms } = useWebSocket('ws://localhost:8081');
@@ -78,6 +79,38 @@ function App() {
 
     return { normal, warning, critical };
   }, [patientsArray]);
+  
+  // Count total alerts across all patients
+  const alertCounts = useMemo(() => {
+    let totalAlerts = 0;
+    let criticalAlerts = 0;
+    
+    patientsArray.forEach(patient => {
+      const hr = parseInt(patient.VS?.find(v => v.name === 'HR')?.value || 0);
+      const spo2 = parseInt(patient.VS?.find(v => v.name === 'SpO2')?.value || 0);
+      
+      if (hr < 40 || hr > 120) {
+        criticalAlerts++;
+        totalAlerts++;
+      } else if (hr < 50 || hr > 100) {
+        totalAlerts++;
+      }
+      
+      if (spo2 < 90) {
+        criticalAlerts++;
+        totalAlerts++;
+      } else if (spo2 < 95) {
+        totalAlerts++;
+      }
+      
+      if (patient.status?.connected === 0) {
+        criticalAlerts++;
+        totalAlerts++;
+      }
+    });
+    
+    return { total: totalAlerts, critical: criticalAlerts };
+  }, [patientsArray]);
 
   // Filter patients by selected location
   const filteredPatients = useMemo(() => {
@@ -118,6 +151,25 @@ function App() {
                 </>
               )}
             </div>
+            
+            {/* Alert Indicator */}
+            {alertCounts.total > 0 && (
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
+                alertCounts.critical > 0
+                  ? 'bg-red-500/20 border-red-500 animate-pulse'
+                  : 'bg-yellow-500/20 border-yellow-500'
+              }`}>
+                <Bell className={`w-5 h-5 ${alertCounts.critical > 0 ? 'text-red-500' : 'text-yellow-500'}`} />
+                <div className="flex flex-col">
+                  <span className={`text-xs ${alertCounts.critical > 0 ? 'text-red-400' : 'text-yellow-400'}`}>
+                    Active Alerts
+                  </span>
+                  <span className={`font-bold ${alertCounts.critical > 0 ? 'text-red-500' : 'text-yellow-500'}`}>
+                    {alertCounts.total} {alertCounts.critical > 0 && `(${alertCounts.critical} Critical)`}
+                  </span>
+                </div>
+              </div>
+            )}
             
             {/* Data Stream Status */}
             {isConnected && (

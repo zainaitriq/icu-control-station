@@ -3,10 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
   const canvasRef = useRef(null);
   
-  // Data buffer - stores ALL incoming data
+  // Data buffer - stores ALL incoming data (initialized as array)
   const dataBufferRef = useRef([]);
   
-  // Display buffer - what we're currently showing
+  // Display buffer - what we're currently showing (initialized as array)
   const displayBufferRef = useRef([]);
   const displayIndexRef = useRef(0);
   
@@ -35,32 +35,30 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
     }
   }, [data]);
 
-  // Smooth data with multiple passes for SpO2
-  const smoothData = (dataArray, windowSize = 3, passes = 1) => {
-    if (dataArray.length < windowSize) return dataArray;
+  // Better smoothing - balance between quality and performance
+  const smoothData = (dataArray, windowSize = 2, passes = 1) => {
+    if (dataArray.length < windowSize || windowSize < 2) return dataArray;
     
     let result = [...dataArray];
     
-    // Apply smoothing multiple times for better results
+    // Apply smoothing passes
     for (let pass = 0; pass < passes; pass++) {
-      const smoothed = [];
+      const smoothed = new Array(result.length);
+      
       for (let i = 0; i < result.length; i++) {
         let sum = 0;
         let count = 0;
         
-        // Weighted average - center point has more weight
         for (let j = Math.max(0, i - windowSize); j <= Math.min(result.length - 1, i + windowSize); j++) {
           if (result[j] !== null && !isNaN(result[j])) {
-            // Gaussian-like weighting: center has highest weight
-            const distance = Math.abs(j - i);
-            const weight = Math.exp(-distance / windowSize);
-            sum += result[j] * weight;
-            count += weight;
+            sum += result[j];
+            count++;
           }
         }
         
-        smoothed.push(count > 0 ? sum / count : result[i]);
+        smoothed[i] = count > 0 ? sum / count : result[i];
       }
+      
       result = smoothed;
     }
     
@@ -138,9 +136,9 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
       
       frameCount++;
       
-      // Log every 300 frames (~5 seconds at 60fps) to track if animation is running
-      if (frameCount % 300 === 0) {
-        console.log(`[${data?.information?.deviceId || 'Unknown'}] Frame ${frameCount}, DataBuffer: ${dataBufferRef.current.length}, Display: ${displayBufferRef.current.length}`);
+      // Log every 600 frames (~10 seconds at 60fps) to track if animation is running
+      if (frameCount % 600 === 0) {
+        console.log(`[${data?.information?.deviceId || 'Unknown'}] Frame ${frameCount}, DataBuffer: ${dataBufferRef.current.length}, Display: ${displayBufferRef.current.length}, Type: ${waveformType}`);
       }
 
       // Enable high-quality rendering
@@ -282,46 +280,38 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
 
           const step = width / displayBufferRef.current.length;
 
+          // Draw waveform lines
           if (waveformType === 'SPO2') {
-            // Use quadratic curves for SpO2 - creates smooth rounded pulse waves
-            displayBufferRef.current.forEach((value, index) => {
-              const x = index * step;
-              const y = normalize(value);
+            // Smooth curves for SpO2 using simplified quadratic
+            for (let i = 0; i < displayBufferRef.current.length; i++) {
+              const x = i * step;
+              const y = normalize(displayBufferRef.current[i]);
 
-              if (index === 0) {
+              if (i === 0) {
                 ctx.moveTo(x, y);
-              } else if (index === 1) {
-                ctx.lineTo(x, y);
+              } else if (i % 2 === 0 && i > 1) {
+                // Apply curve every other point for smooth appearance without too much processing
+                const prevX = (i - 1) * step;
+                const prevY = normalize(displayBufferRef.current[i - 1]);
+                const cpX = (prevX + x) / 2;
+                const cpY = (prevY + y) / 2;
+                ctx.quadraticCurveTo(prevX, prevY, cpX, cpY);
               } else {
-                // Quadratic curve through previous point
-                const prevX = (index - 1) * step;
-                const prevY = normalize(displayBufferRef.current[index - 1]);
-                const cpX = (prevX + x) / 2;
-                const cpY = (prevY + y) / 2;
-                ctx.quadraticCurveTo(prevX, prevY, cpX, cpY);
-              }
-            });
-          } else {
-            // For ECG: Use gentle curves to smooth P and T waves while preserving QRS
-            displayBufferRef.current.forEach((value, index) => {
-              const x = index * step;
-              const y = normalize(value);
-
-              if (index === 0) {
-                ctx.moveTo(x, y);
-              } else if (index === 1) {
                 ctx.lineTo(x, y);
-              } else if (index > 1) {
-                // Gentle curve for smooth ECG appearance
-                const prevX = (index - 1) * step;
-                const prevY = normalize(displayBufferRef.current[index - 1]);
-                const cpX = (prevX + x) / 2;
-                const cpY = (prevY + y) / 2;
-                
-                // Use very subtle curve - preserves sharpness but removes jaggedness
-                ctx.quadraticCurveTo(prevX, prevY, cpX, cpY);
               }
-            });
+            }
+          } else {
+            // ECG with smooth lines
+            for (let i = 0; i < displayBufferRef.current.length; i++) {
+              const x = i * step;
+              const y = normalize(displayBufferRef.current[i]);
+
+              if (i === 0) {
+                ctx.moveTo(x, y);
+              } else {
+                ctx.lineTo(x, y);
+              }
+            }
           }
 
           ctx.stroke();

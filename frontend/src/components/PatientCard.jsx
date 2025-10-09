@@ -1,8 +1,10 @@
-import { User, Activity } from 'lucide-react';
+import { User, Activity, AlertTriangle } from 'lucide-react';
 import WaveformChart from './WaveformChart';
+import { usePatientAlerts } from '../hooks/usePatientAlerts';
 
 const PatientCard = ({ patient, waveforms = [] }) => {
   const { information, VS = [], status } = patient;
+  const { alerts, hasCritical } = usePatientAlerts(patient, waveforms);
   
   // Get vital signs by name - return '--' if not found
   const getVital = (name) => {
@@ -76,7 +78,30 @@ const PatientCard = ({ patient, waveforms = [] }) => {
   const fallbackECG = ecgWaveform || (recentWaveforms.length > 0 ? recentWaveforms[recentWaveforms.length - 1] : null);
 
   return (
-    <div className="bg-icu-card border border-icu-border rounded-lg p-4 hover:border-icu-green/30 transition-all">
+    <div className={`bg-icu-card rounded-lg p-4 hover:border-icu-green/30 transition-all ${
+      hasCritical 
+        ? 'border-2 border-red-500 animate-pulse shadow-lg shadow-red-500/50' 
+        : 'border border-icu-border'
+    }`}>
+      {/* Alert Banner */}
+      {alerts.length > 0 && (
+        <div className="mb-3 space-y-1">
+          {alerts.map((alert, idx) => (
+            <div
+              key={idx}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold ${
+                alert.type === 'CRITICAL'
+                  ? 'bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse'
+                  : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50'
+              }`}
+            >
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span className="flex-1">{alert.message}</span>
+              <span className="text-xs">{alert.icon}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
@@ -164,14 +189,52 @@ const PatientCard = ({ patient, waveforms = [] }) => {
 const VitalSign = ({ icon, label, value, unit }) => {
   const isNoData = value === '--' || value === 'undefined' || !value;
   
+  // Determine if value is abnormal
+  const numValue = parseFloat(value);
+  let isAbnormal = false;
+  let isCritical = false;
+  
+  if (!isNaN(numValue)) {
+    if (label === 'HR') {
+      isCritical = numValue < 40 || numValue > 120;
+      isAbnormal = numValue < 50 || numValue > 100;
+    } else if (label === 'SPO2') {
+      isCritical = numValue < 90;
+      isAbnormal = numValue < 95;
+    } else if (label === 'TEMP') {
+      isAbnormal = numValue < 35.0 || numValue > 38.5;
+    } else if (label === 'RR') {
+      isAbnormal = numValue < 8 || numValue > 25;
+    }
+  }
+  
   return (
-    <div className="bg-black/30 rounded-md p-2 border border-icu-border/50">
+    <div className={`bg-black/30 rounded-md p-2 border transition-all ${
+      isCritical 
+        ? 'border-red-500 bg-red-500/10' 
+        : isAbnormal 
+        ? 'border-yellow-500 bg-yellow-500/10'
+        : 'border-icu-border/50'
+    }`}>
       <div className="flex items-center gap-1 mb-1">
         <span className="text-xs">{icon}</span>
         <span className="text-xs text-gray-400 font-semibold">{label}</span>
+        {(isCritical || isAbnormal) && (
+          <AlertTriangle className={`w-3 h-3 ml-auto ${
+            isCritical ? 'text-red-500' : 'text-yellow-500'
+          }`} />
+        )}
       </div>
       <div className="flex items-baseline gap-1">
-        <span className={`text-lg font-bold font-mono ${isNoData ? 'text-gray-600' : 'text-white'}`}>
+        <span className={`text-lg font-bold font-mono ${
+          isNoData 
+            ? 'text-gray-600' 
+            : isCritical 
+            ? 'text-red-500 animate-pulse' 
+            : isAbnormal 
+            ? 'text-yellow-500'
+            : 'text-white'
+        }`}>
           {value}
         </span>
         {!isNoData && <span className="text-xs text-gray-500">{unit}</span>}
