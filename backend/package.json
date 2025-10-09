@@ -1,26 +1,24 @@
 {
   "name": "icu-backend",
   "version": "1.0.0",
-  "description": "",
-   "type": "module",
-   "scripts": {
-    "start": "node src/server.js",
+  "type": "module",
+  "scripts": {
+   "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "bridge": "node src/websocket-bridge.js",
     "consumer": "node src/consumer.js",
-    "bridge": "node src/websocket-bridge.js"
+    "test-producer": "node src/test-producer.js",
+     "status": "node check-status.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "axios": "^1.12.2",
+    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
+    "dotenv": "^16.3.1",
     "kafkajs": "^2.2.4",
-    "ws": "^8.18.3"
+    "axios": "^1.6.2",
+    "ws": "^8.14.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.0.1"
   }
 }

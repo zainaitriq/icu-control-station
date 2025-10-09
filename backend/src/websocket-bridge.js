@@ -25,7 +25,7 @@ class DashboardBridge {
 
     setupWebSocket() {
         this.wss.on('connection', (ws) => {
-            console.log('New WebSocket client connected');
+            console.log('✅ New WebSocket client connected');
             this.clients.add(ws);
 
             // Send current data to new client
@@ -35,7 +35,7 @@ class DashboardBridge {
             }));
 
             ws.on('close', () => {
-                console.log('Client disconnected');
+                console.log('❌ Client disconnected');
                 this.clients.delete(ws);
             });
 
@@ -44,6 +44,58 @@ class DashboardBridge {
                 this.clients.delete(ws);
             });
         });
+    }
+
+    ensurePatientExists(deviceId, patientInfo) {
+        if (!this.patientData.has(deviceId)) {
+            // Create patient entry with default values
+            this.patientData.set(deviceId, {
+                information: {
+                    deviceId: deviceId,
+                    patientId: patientInfo?.patientId || `PT${deviceId.substring(0, 6)}`,
+                    facilityId: 'site-1',
+                    bedId: patientInfo?.bedId || 'Unknown',
+                    groupName: this.extractHospitalFromDevice(deviceId),
+                    patientName: patientInfo?.patientId ? `Patient ${patientInfo.patientId}` : `Patient ${deviceId}`,
+                    timeStamp: Date.now(),
+                    alarmMode: 0,
+                    status: {
+                        admitted: 1,
+                        connected: 1,
+                        comfortCare: 0,
+                        pairingSAI: 0,
+                        pairingV2: 0,
+                        pairing: 0,
+                        transferring: 0,
+                        measuring: 1
+                    }
+                },
+                VS: [],
+                lastUpdate: Date.now()
+            });
+            console.log(`📝 Created patient entry for device: ${deviceId} with patient ID: ${patientInfo?.patientId || 'N/A'}`);
+        } else {
+            // Update patient ID if it exists in the new data
+            const existing = this.patientData.get(deviceId);
+            if (patientInfo?.patientId && patientInfo.patientId !== existing.information.patientId) {
+                existing.information.patientId = patientInfo.patientId;
+                existing.information.patientName = `Patient ${patientInfo.patientId}`;
+                console.log(`✏️ Updated patient ID for ${deviceId}: ${patientInfo.patientId}`);
+            }
+        }
+    }
+
+    extractHospitalFromDevice(deviceId) {
+        // Extract hospital from device ID
+        if (deviceId.includes('TGH')) return 'TGH';
+        if (deviceId.includes('MNGH')) return 'MNGH';
+        if (deviceId.includes('RGH')) return 'RGH';
+        if (deviceId.includes('AIGH')) return 'AISH';
+        if (deviceId.includes('MFG')) return 'MFG';
+        
+        // Default extraction from device ID pattern
+        const match = deviceId.match(/([A-Z]+)-/);
+        return match ? match[1] : 'ICU';
     }
 
     setupRoutes() {
@@ -67,11 +119,16 @@ class DashboardBridge {
                     return res.status(400).json({ error: 'Missing deviceId' });
                 }
 
-                // Store or update patient data
+                // Ensure patient exists
+                this.ensurePatientExists(deviceId, data.information);
+
+                // Update patient data with vital signs
                 this.patientData.set(deviceId, {
                     ...data,
                     lastUpdate: Date.now()
                 });
+
+                console.log(`💓 Updated vitals for ${deviceId}`);
 
                 // Broadcast to all connected clients
                 this.broadcast({
@@ -95,6 +152,16 @@ class DashboardBridge {
                 const deviceId = data.information?.deviceId;
                 if (!deviceId) {
                     return res.status(400).json({ error: 'Missing deviceId' });
+                }
+
+                // Ensure patient exists (create from waveform data if needed)
+                this.ensurePatientExists(deviceId, data.information);
+
+                // Update last activity time
+                const patient = this.patientData.get(deviceId);
+                if (patient) {
+                    patient.lastUpdate = Date.now();
+                    patient.information.timeStamp = Date.now();
                 }
 
                 // Store waveform data
@@ -160,9 +227,9 @@ class DashboardBridge {
 
     start(port = 8081) {
         this.server.listen(port, () => {
-            console.log(`Dashboard Bridge running on port ${port}`);
-            console.log(`WebSocket: ws://localhost:${port}`);
-            console.log(`HTTP API: http://localhost:${port}`);
+            console.log(`✅ Dashboard Bridge running on port ${port}`);
+            console.log(`🌐 WebSocket: ws://localhost:${port}`);
+            console.log(`🌐 HTTP API: http://localhost:${port}`);
         });
     }
 }
