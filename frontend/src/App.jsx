@@ -151,9 +151,11 @@ function App() {
                 </>
               )}
             </div>
-            
+          
             {/* Alert Indicator */}
-            {alertCounts.total > 0 && (
+         {/**
+          * 
+             {alertCounts.total > 0 && (
               <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
                 alertCounts.critical > 0
                   ? 'bg-red-500/20 border-red-500 animate-pulse'
@@ -170,6 +172,9 @@ function App() {
                 </div>
               </div>
             )}
+          * 
+          * 
+          */}
             
             {/* Data Stream Status */}
             {isConnected && (
