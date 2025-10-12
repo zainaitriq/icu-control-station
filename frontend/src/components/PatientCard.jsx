@@ -2,10 +2,9 @@ import { User, Activity, AlertTriangle } from 'lucide-react';
 import WaveformChart from './WaveformChart';
 import { usePatientAlerts } from '../hooks/usePatientAlerts';
 
-const PatientCard = ({ patient, waveforms = [] }) => {
+const PatientCard = ({ patient, waveforms = [] ,isMuted }) => {
   const { information, VS = [], status } = patient;
-  const { alerts, hasCritical } = usePatientAlerts(patient, waveforms);
-  
+const { alerts, hasCritical } = usePatientAlerts(patient, waveforms, isMuted);  
   // Get vital signs by name - return '--' if not found
   const getVital = (name) => {
     if (!VS || VS.length === 0) return '--';

@@ -1,57 +1,38 @@
 import { useState, useEffect, useRef } from 'react';
 
-export const usePatientAlerts = (patient, waveforms) => {
+export const usePatientAlerts = (patient, waveforms, isMuted = true) => {
   const [alerts, setAlerts] = useState([]);
   const lastAlertTimeRef = useRef({});
   const alertSoundRef = useRef(null);
 
+  const analyzeWaveform = (waveform, type) => {
+    if (!waveform || waveform.length === 0) return null;
+
+    const values = waveform.map(w => parseFloat(w.y) || 0);
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+
+    return {
+      avg,
+      max,
+      min,
+      range: max - min
+    };
+  };
+
   useEffect(() => {
     const newAlerts = [];
-    const { information, status } = patient;
 
-    // Helper to analyze waveform patterns
-    const analyzeWaveform = (waveformData, type) => {
-      if (!waveformData?.waveform?.data) return null;
-      
-      const dataString = waveformData.waveform.data;
-      const values = dataString.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v));
-      
-      if (values.length === 0) return null;
-
-      const avg = values.reduce((a, b) => a + b, 0) / values.length;
-      const max = Math.max(...values);
-      const min = Math.min(...values);
-      const range = max - min;
-
-      return { avg, max, min, range, values };
-    };
-
-    // Get recent waveforms for this device
-    const recentWaveforms = waveforms.slice(-10);
-    
-    // Find ECG waveform
-    const ecgWaveform = recentWaveforms.find(w => 
-      w.waveform && (
-        w.waveform.name === 'II' || 
-        w.waveform.name === 'I' || 
-        w.waveform.name?.includes('ECG')
-      )
-    );
-
-    // Find SpO2 waveform
-    const spo2Waveform = recentWaveforms.find(w => 
-      w.waveform && (
-        w.waveform.name === 'SpO2' || 
-        w.waveform.name === 'SPO2'
-      )
-    );
+    // Get waveforms
+    const ecgWaveform = waveforms?.find(w => w.name === 'ECG')?.data;
+    const spo2Waveform = waveforms?.find(w => w.name === 'SPO2')?.data;
 
     // Analyze ECG waveform
     if (ecgWaveform) {
       const ecgAnalysis = analyzeWaveform(ecgWaveform, 'ECG');
       
       if (ecgAnalysis) {
-        // Check for flat line (very low range)
         if (ecgAnalysis.range < 5) {
           newAlerts.push({
             type: 'CRITICAL',
@@ -61,7 +42,6 @@ export const usePatientAlerts = (patient, waveforms) => {
             sound: true
           });
         }
-        // Check for irregular rhythm (too much variation)
         else if (ecgAnalysis.range > 100) {
           newAlerts.push({
             type: 'WARNING',
@@ -71,7 +51,6 @@ export const usePatientAlerts = (patient, waveforms) => {
             sound: false
           });
         }
-        // Check for abnormally high amplitude
         else if (ecgAnalysis.max > 150) {
           newAlerts.push({
             type: 'WARNING',
@@ -83,7 +62,6 @@ export const usePatientAlerts = (patient, waveforms) => {
         }
       }
     } else {
-      // No ECG signal
       newAlerts.push({
         type: 'WARNING',
         category: 'NO_ECG',
@@ -98,7 +76,6 @@ export const usePatientAlerts = (patient, waveforms) => {
       const spo2Analysis = analyzeWaveform(spo2Waveform, 'SPO2');
       
       if (spo2Analysis) {
-        // Check for flat SpO2 (poor perfusion)
         if (spo2Analysis.range < 3) {
           newAlerts.push({
             type: 'WARNING',
@@ -108,7 +85,6 @@ export const usePatientAlerts = (patient, waveforms) => {
             sound: false
           });
         }
-        // Check for very low SpO2 waveform amplitude
         else if (spo2Analysis.max < 10) {
           newAlerts.push({
             type: 'CRITICAL',
@@ -120,7 +96,6 @@ export const usePatientAlerts = (patient, waveforms) => {
         }
       }
     } else {
-      // No SpO2 signal
       newAlerts.push({
         type: 'WARNING',
         category: 'NO_SPO2',
@@ -131,7 +106,7 @@ export const usePatientAlerts = (patient, waveforms) => {
     }
 
     // Check device connection status
-    if (status?.connected === 0) {
+    if (patient.status?.connected === 0) {
       newAlerts.push({
         type: 'CRITICAL',
         category: 'DISCONNECTED',
@@ -153,9 +128,9 @@ export const usePatientAlerts = (patient, waveforms) => {
       });
     }
 
-    // Play sound for critical alerts (with cooldown)
+    // Play sound for critical alerts (with cooldown) - only if not muted
     newAlerts.forEach(alert => {
-      if (alert.sound && alert.type === 'CRITICAL') {
+      if (alert.sound && alert.type === 'CRITICAL' && !isMuted) {
         const now = Date.now();
         const lastAlertTime = lastAlertTimeRef.current[alert.category] || 0;
         
@@ -168,7 +143,7 @@ export const usePatientAlerts = (patient, waveforms) => {
     });
 
     setAlerts(newAlerts);
-  }, [patient, waveforms]);
+  }, [patient, waveforms, isMuted]);
 
   const playAlertSound = (type) => {
     // Create audio context if not exists
@@ -223,5 +198,8 @@ export const usePatientAlerts = (patient, waveforms) => {
     }
   };
 
-  return { alerts, hasCritical: alerts.some(a => a.type === 'CRITICAL') };
+  return { 
+    alerts, 
+    hasCritical: alerts.some(a => a.type === 'CRITICAL')
+  };
 };

@@ -1,13 +1,16 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Activity, Wifi, WifiOff, Clock, Database, Bell, AlertTriangle } from 'lucide-react';
+
 import { useWebSocket } from './hooks/useWebSocket';
 import PatientCard from './components/PatientCard';
 import { usePatientAlerts } from './hooks/usePatientAlerts';
+import { Activity, Wifi, WifiOff, Clock, Database, Bell, AlertTriangle, Volume2, VolumeX } from 'lucide-react';
 
 function App() {
   const { isConnected, patients, waveforms } = useWebSocket('ws://localhost:8081');
   const [selectedFilter, setSelectedFilter] = useState('ALL');
   const [waitingTime, setWaitingTime] = useState(0);
+  const [isGlobalMuted, setIsGlobalMuted] = useState(true);
+
 
   // Track waiting time
   useEffect(() => {
@@ -27,7 +30,7 @@ function App() {
   // Group patients by location
   const groupedPatients = useMemo(() => {
     const groups = new Map();
-    
+
     patientsArray.forEach(patient => {
       const location = patient.information?.groupName || 'Unknown';
       if (!groups.has(location)) {
@@ -79,36 +82,36 @@ function App() {
 
     return { normal, warning, critical };
   }, [patientsArray]);
-  
+
   // Count total alerts across all patients
   const alertCounts = useMemo(() => {
     let totalAlerts = 0;
     let criticalAlerts = 0;
-    
+
     patientsArray.forEach(patient => {
       const hr = parseInt(patient.VS?.find(v => v.name === 'HR')?.value || 0);
       const spo2 = parseInt(patient.VS?.find(v => v.name === 'SpO2')?.value || 0);
-      
+
       if (hr < 40 || hr > 120) {
         criticalAlerts++;
         totalAlerts++;
       } else if (hr < 50 || hr > 100) {
         totalAlerts++;
       }
-      
+
       if (spo2 < 90) {
         criticalAlerts++;
         totalAlerts++;
       } else if (spo2 < 95) {
         totalAlerts++;
       }
-      
+
       if (patient.status?.connected === 0) {
         criticalAlerts++;
         totalAlerts++;
       }
     });
-    
+
     return { total: totalAlerts, critical: criticalAlerts };
   }, [patientsArray]);
 
@@ -151,9 +154,30 @@ function App() {
                 </>
               )}
             </div>
-          
+
+            {/* Mute/Unmute Button */}
+            <button
+              onClick={() => setIsGlobalMuted(prev => !prev)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${isGlobalMuted
+                  ? 'bg-icu-dark border-gray-600 hover:border-gray-500'
+                  : 'bg-icu-blue/20 border-icu-blue hover:bg-icu-blue/30'
+                }`}
+            >
+              {isGlobalMuted ? (
+                <>
+                  <VolumeX className="w-5 h-5 text-gray-400" />
+                  <span className="text-gray-400 font-semibold">Muted</span>
+                </>
+              ) : (
+                <>
+                  <Volume2 className="w-5 h-5 text-icu-blue" />
+                  <span className="text-icu-blue font-semibold">Sound On</span>
+                </>
+              )}
+            </button>
+
             {/* Alert Indicator */}
-         {/**
+            {/**
           * 
              {alertCounts.total > 0 && (
               <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
@@ -175,14 +199,14 @@ function App() {
           * 
           * 
           */}
-            
+
             {/* Data Stream Status */}
             {isConnected && (
               <div className="flex items-center gap-2 px-4 py-2 bg-icu-dark rounded-lg border border-icu-border">
                 <Database className="w-5 h-5 text-icu-blue" />
                 <span className="text-gray-300">
-                  {patientsArray.length > 0 
-                    ? `${patientsArray.length} Active` 
+                  {patientsArray.length > 0
+                    ? `${patientsArray.length} Active`
                     : 'Awaiting Data'}
                 </span>
               </div>
@@ -198,11 +222,10 @@ function App() {
             <button
               key={key}
               onClick={() => setSelectedFilter(key)}
-              className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedFilter === key
+              className={`px-4 py-2 rounded-lg font-semibold transition-all ${selectedFilter === key
                   ? 'bg-icu-green text-black'
                   : 'bg-icu-card border border-icu-border text-white hover:border-icu-green/50'
-              }`}
+                }`}
             >
               {key} ({count})
             </button>
@@ -287,6 +310,7 @@ function App() {
                 key={patient.information.deviceId}
                 patient={patient}
                 waveforms={waveforms.get(patient.information.deviceId) || []}
+                isMuted={isGlobalMuted}
               />
             ))}
           </div>
