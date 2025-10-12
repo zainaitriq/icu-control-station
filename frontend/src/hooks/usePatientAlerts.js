@@ -6,9 +6,27 @@ export const usePatientAlerts = (patient, waveforms, isMuted = true) => {
   const alertSoundRef = useRef(null);
 
   const analyzeWaveform = (waveform, type) => {
-    if (!waveform || waveform.length === 0) return null;
+    // Check if waveform is valid and is an array
+    if (!waveform || !Array.isArray(waveform) || waveform.length === 0) {
+      return null;
+    }
 
-    const values = waveform.map(w => parseFloat(w.y) || 0);
+    // Extract values - handle different possible structures
+    const values = waveform.map(w => {
+      // If it's already a number, use it
+      if (typeof w === 'number') {
+        return w;
+      }
+      // If it's an object, try to get y, value, or the object itself
+      if (typeof w === 'object' && w !== null) {
+        return parseFloat(w.y || w.value || 0);
+      }
+      // Otherwise try to parse it
+      return parseFloat(w) || 0;
+    });
+
+    if (values.length === 0) return null;
+
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
     const max = Math.max(...values);
     const min = Math.min(...values);
@@ -24,9 +42,34 @@ export const usePatientAlerts = (patient, waveforms, isMuted = true) => {
   useEffect(() => {
     const newAlerts = [];
 
-    // Get waveforms
-    const ecgWaveform = waveforms?.find(w => w.name === 'ECG')?.data;
-    const spo2Waveform = waveforms?.find(w => w.name === 'SPO2')?.data;
+    // Get the most recent waveforms (last 5)
+    const recentWaveforms = waveforms?.slice(-5) || [];
+
+    // Helper to find waveform by name
+    const findWaveform = (names) => {
+      for (let i = recentWaveforms.length - 1; i >= 0; i--) {
+        const w = recentWaveforms[i];
+        if (w?.waveform && names.some(name => 
+          w.waveform.name === name || 
+          w.waveform.name?.includes(name)
+        )) {
+          // Get the data - it might be a string or an array
+          let data = w.waveform.data;
+          
+          // If data is a string, parse it into an array
+          if (typeof data === 'string') {
+            data = data.split(',').map(v => parseFloat(v.trim()) || 0);
+          }
+          
+          return (Array.isArray(data) && data.length > 0) ? data : null;
+        }
+      }
+      return null;
+    };
+
+    // Get waveforms - try multiple lead types
+    const ecgWaveform = findWaveform(['II', 'I', 'III', 'ECG', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']);
+    const spo2Waveform = findWaveform(['SpO2', 'SPO2', 'Spo2']);
 
     // Analyze ECG waveform
     if (ecgWaveform) {

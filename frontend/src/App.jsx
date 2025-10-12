@@ -4,7 +4,6 @@ import { useWebSocket } from './hooks/useWebSocket';
 import PatientCard from './components/PatientCard';
 import { usePatientAlerts } from './hooks/usePatientAlerts';
 import { Activity, Wifi, WifiOff, Clock, Database, Bell, AlertTriangle, Volume2, VolumeX } from 'lucide-react';
-
 function App() {
   const { isConnected, patients, waveforms } = useWebSocket('ws://localhost:8081');
   const [selectedFilter, setSelectedFilter] = useState('ALL');
