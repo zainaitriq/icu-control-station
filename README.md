@@ -2,11 +2,10 @@
 
 Real-time Patient Monitoring Dashboard for Intensive Care Units
 
-![ICU Dashboard](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
-![Node.js](https://img.shields.io/badge/Node.js-18+-green)
-![React](https://img.shields.io/badge/React-19.1-blue)
-![Kafka](https://img.shields.io/badge/Kafka-Streaming-orange)
-
+![ICU Dashboard]
+![Node.js]
+![React]
+![Kafka]
 ---
 
 ## 📋 Table of Contents
