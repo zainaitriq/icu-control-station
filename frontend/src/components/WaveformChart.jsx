@@ -121,7 +121,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         
         // Log data reception every 1000 data points
         if (dataBufferRef.current.length % 1000 === 0) {
-          console.log(`[${data?.information?.deviceId}] Buffer size: ${dataBufferRef.current.length}, Display at: ${displayIndexRef.current}`);
+        //  console.log(`[${data?.information?.deviceId}] Buffer size: ${dataBufferRef.current.length}, Display at: ${displayIndexRef.current}`);
         }
       }
     }
@@ -149,7 +149,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
       // Log every 600 frames (~10 seconds at 60fps)
       if (frameCount % 600 === 0) {
         const timeSinceData = Math.floor((currentTime - lastDataReceivedRef.current) / 1000);
-        console.log(`[${data?.information?.deviceId || 'Unknown'}] Frame ${frameCount}, Buffer: ${dataBufferRef.current.length}, Display: ${displayBufferRef.current.length}, Index: ${displayIndexRef.current}, Last data: ${timeSinceData}s ago`);
+       // console.log(`[${data?.information?.deviceId || 'Unknown'}] Frame ${frameCount}, Buffer: ${dataBufferRef.current.length}, Display: ${displayBufferRef.current.length}, Index: ${displayIndexRef.current}, Last data: ${timeSinceData}s ago`);
       }
 
       // Enable high-quality rendering
