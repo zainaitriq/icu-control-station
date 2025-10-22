@@ -1,4 +1,4 @@
-// websocket-bridge.js - WebSocket server for real-time data streaming
+// websocket-bridge.js - FIXED VERSION
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
@@ -28,7 +28,6 @@ class DashboardBridge {
             console.log('✅ New WebSocket client connected');
             this.clients.add(ws);
 
-            // Send current data to new client
             ws.send(JSON.stringify({
                 type: 'initial',
                 patients: Array.from(this.patientData.values())
@@ -46,20 +45,48 @@ class DashboardBridge {
         });
     }
 
+    // FIXED: Normalize and extract group name consistently
+    extractGroupName(patientInfo, deviceId) {
+        // Priority 1: Use groupName from Kafka if it looks like a hospital code
+        if (patientInfo?.groupName) {
+            const kafkaGroup = patientInfo.groupName.toUpperCase().trim();
+            
+            // If it's a known hospital code, use it
+            if (['TGH', 'MNGH', 'RGH', 'AISH', 'MFG'].includes(kafkaGroup)) {
+                return kafkaGroup;
+            }
+        }
+        
+        // Priority 2: Extract from device ID
+        if (deviceId.includes('TGH')) return 'TGH';
+        if (deviceId.includes('MNGH')) return 'MNGH';
+        if (deviceId.includes('RGH')) return 'RGH';
+        if (deviceId.includes('AIGH')) return 'AISH';
+        if (deviceId.includes('MFG')) return 'MFG';
+        
+        // Priority 3: Use pattern match
+        const match = deviceId.match(/([A-Z]+)-/);
+        if (match) return match[1];
+        
+        // Priority 4: Use Kafka groupName as-is or default to ICU
+        return patientInfo?.groupName || 'ICU';
+    }
+
     ensurePatientExists(deviceId, patientInfo) {
         if (!this.patientData.has(deviceId)) {
-            // Create patient entry with default values
+            const groupName = this.extractGroupName(patientInfo, deviceId);
+            
             this.patientData.set(deviceId, {
                 information: {
                     deviceId: deviceId,
                     patientId: patientInfo?.patientId || `PT${deviceId.substring(0, 6)}`,
-                    facilityId: 'site-1',
+                    facilityId: patientInfo?.facilityId || 'site-1',
                     bedId: patientInfo?.bedId || 'Unknown',
-                    groupName: this.extractHospitalFromDevice(deviceId),
+                    groupName: groupName,
                     patientName: patientInfo?.patientId ? `Patient ${patientInfo.patientId}` : `Patient ${deviceId}`,
                     timeStamp: Date.now(),
-                    alarmMode: 0,
-                    status: {
+                    alarmMode: patientInfo?.alarmMode || 0,
+                    status: patientInfo?.status || {
                         admitted: 1,
                         connected: 1,
                         comfortCare: 0,
@@ -73,29 +100,9 @@ class DashboardBridge {
                 VS: [],
                 lastUpdate: Date.now()
             });
-            console.log(`📝 Created patient entry for device: ${deviceId} with patient ID: ${patientInfo?.patientId || 'N/A'}`);
-        } else {
-            // Update patient ID if it exists in the new data
-            const existing = this.patientData.get(deviceId);
-            if (patientInfo?.patientId && patientInfo.patientId !== existing.information.patientId) {
-                existing.information.patientId = patientInfo.patientId;
-                existing.information.patientName = `Patient ${patientInfo.patientId}`;
-                console.log(`✏️ Updated patient ID for ${deviceId}: ${patientInfo.patientId}`);
-            }
+            
+            console.log(`📝 Created patient: ${deviceId} → Group: ${groupName}`);
         }
-    }
-
-    extractHospitalFromDevice(deviceId) {
-        // Extract hospital from device ID
-        if (deviceId.includes('TGH')) return 'TGH';
-        if (deviceId.includes('MNGH')) return 'MNGH';
-        if (deviceId.includes('RGH')) return 'RGH';
-        if (deviceId.includes('AIGH')) return 'AISH';
-        if (deviceId.includes('MFG')) return 'MFG';
-        
-        // Default extraction from device ID pattern
-        const match = deviceId.match(/([A-Z]+)-/);
-        return match ? match[1] : 'ICU';
     }
 
     setupRoutes() {
@@ -108,7 +115,27 @@ class DashboardBridge {
             });
         });
 
-        // Receive vital signs from Kafka consumer
+        // Debug endpoint to check groups
+        this.app.get('/api/debug/groups', (req, res) => {
+            const groupCounts = {};
+            
+            this.patientData.forEach((patient) => {
+                const groupName = patient.information?.groupName || 'UNKNOWN';
+                groupCounts[groupName] = (groupCounts[groupName] || 0) + 1;
+            });
+            
+            res.json({
+                totalPatients: this.patientData.size,
+                groupCounts: groupCounts,
+                patients: Array.from(this.patientData.values()).map(p => ({
+                    deviceId: p.information?.deviceId,
+                    groupName: p.information?.groupName,
+                    hasVitals: p.VS && p.VS.length > 0
+                }))
+            });
+        });
+
+        // FIXED: Receive vital signs - preserve groupName
         this.app.post('/kafka/vitals', (req, res) => {
             try {
                 const { message } = req.body;
@@ -119,21 +146,33 @@ class DashboardBridge {
                     return res.status(400).json({ error: 'Missing deviceId' });
                 }
 
-                // Ensure patient exists
+                // Ensure patient exists (creates if needed)
                 this.ensurePatientExists(deviceId, data.information);
 
-                // Update patient data with vital signs
+                // Get existing patient to preserve groupName
+                const existingPatient = this.patientData.get(deviceId);
+                const preservedGroupName = existingPatient.information.groupName;
+
+                // Update patient data - PRESERVE the groupName we set
                 this.patientData.set(deviceId, {
                     ...data,
+                    information: {
+                        ...data.information,
+                        groupName: preservedGroupName  // ✅ Keep the normalized group name
+                    },
                     lastUpdate: Date.now()
                 });
-
-                console.log(`💓 Updated vitals for ${deviceId}`);
 
                 // Broadcast to all connected clients
                 this.broadcast({
                     type: 'vitals',
-                    data: data
+                    data: {
+                        ...data,
+                        information: {
+                            ...data.information,
+                            groupName: preservedGroupName
+                        }
+                    }
                 });
 
                 res.json({ success: true });
@@ -143,7 +182,7 @@ class DashboardBridge {
             }
         });
 
-        // Receive waveform data from Kafka consumer
+        // Receive waveform data
         this.app.post('/kafka/waveform', (req, res) => {
             try {
                 const { message } = req.body;
@@ -154,7 +193,7 @@ class DashboardBridge {
                     return res.status(400).json({ error: 'Missing deviceId' });
                 }
 
-                // Ensure patient exists (create from waveform data if needed)
+                // Ensure patient exists
                 this.ensurePatientExists(deviceId, data.information);
 
                 // Update last activity time
@@ -172,12 +211,11 @@ class DashboardBridge {
                 const waveforms = this.waveformData.get(deviceId);
                 waveforms.push(data);
 
-                // Keep only last 100 waveform segments per device
                 if (waveforms.length > 100) {
                     waveforms.shift();
                 }
 
-                // Broadcast to all connected clients
+                // Broadcast
                 this.broadcast({
                     type: 'waveform',
                     data: data
@@ -205,7 +243,7 @@ class DashboardBridge {
             res.json(patient);
         });
 
-        // Get waveform data for specific patient
+        // Get waveform data
         this.app.get('/api/waveform/:deviceId', (req, res) => {
             const waveforms = this.waveformData.get(req.params.deviceId) || [];
             res.json(waveforms);
@@ -215,7 +253,7 @@ class DashboardBridge {
     broadcast(message) {
         const data = JSON.stringify(message);
         this.clients.forEach(client => {
-            if (client.readyState === 1) { // WebSocket.OPEN
+            if (client.readyState === 1) {
                 try {
                     client.send(data);
                 } catch (error) {
