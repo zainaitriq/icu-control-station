@@ -51,20 +51,20 @@ class FixedNKDHSConsumer {
     }
 
     initializeKafka() {
-        const brokerHost = process.env.KAFKA_BROKER_HOST || '10.168.103.168';
+        const brokerHost = process.env.KAFKA_BROKER_HOST;
         const brokerPort = process.env.KAFKA_BROKER_PORT || '9092';
-        const clientId = process.env.CLIENT_ID || 'experia';
+        const clientId = process.env.CLIENT_ID || 'icu-dashboard-consumer';
 
         if (!brokerHost) {
             console.error('❌ KAFKA_BROKER_HOST is required but not set in .env file');
             process.exit(1);
         }
-//backend\certs\experia-ca1-signed.crt
+
         const sslConfig = {
             rejectUnauthorized: false,
-            ca: [this.readCertFile(process.env.SSL_CA_PATH || './certs/experia-ca1-signed.crt')],
-            key: this.readCertFile(process.env.SSL_KEY_PATH || './certs/experia.key'),
-            cert: this.readCertFile(process.env.SSL_CERT_PATH || './certs/experia.certificate.pem')
+            ca: [this.readCertFile(process.env.SSL_CA_PATH || './certs/clientwflive-ca1-signed.crt')],
+            key: this.readCertFile(process.env.SSL_KEY_PATH || './certs/clientwflive.key'),
+            cert: this.readCertFile(process.env.SSL_CERT_PATH || './certs/clientwflive.certificate.pem')
         };
 
         this.kafka = new Kafka({
@@ -260,79 +260,83 @@ class FixedNKDHSConsumer {
         }
     }
 
-    async start() {
-        try {
-            console.log('🚀 Starting NKDHS ICU Consumer...');
-            console.log('Configuration:');
-            console.log(`  Kafka Broker: ${process.env.KAFKA_BROKER_HOST}:${process.env.KAFKA_BROKER_PORT || '9092'}`);
-            console.log(`  Consumer Group: ${process.env.CONSUMER_GROUP_ID || 'icu-dashboard-group'}`);
-            console.log(`  Bridge URL: ${this.bridgeUrl}`);
+// Replace the subscription loop in your start() method with this:
 
-            await this.checkBridgeHealth();
+async start() {
+    try {
+        console.log('🚀 Starting NKDHS ICU Consumer...');
+        console.log('Configuration:');
+        console.log(`  Kafka Broker: ${process.env.KAFKA_BROKER_HOST}:${process.env.KAFKA_BROKER_PORT || '9092'}`);
+        console.log(`  Consumer Group: ${process.env.CONSUMER_GROUP_ID || 'icu-dashboard-group'}`);
+        console.log(`  Bridge URL: ${this.bridgeUrl}`);
 
-            const groupId = process.env.CONSUMER_GROUP_ID || 'icu-dashboard-group';
-            this.consumer = this.kafka.consumer({
-                groupId: groupId,
-                sessionTimeout: 30000,
-                heartbeatInterval: 3000,
-                maxWaitTimeInMs: 5000,
-                retry: { retries: 5, initialRetryTime: 1000 }
-            });
+        await this.checkBridgeHealth();
 
-            console.log('🔌 Connecting to Kafka...');
-            await this.consumer.connect();
-            console.log('✅ Connected to Kafka broker');
+        const groupId = process.env.CONSUMER_GROUP_ID || 'icu-dashboard-group';
+        this.consumer = this.kafka.consumer({
+            groupId: groupId,
+            sessionTimeout: 30000,
+            heartbeatInterval: 3000,
+            maxWaitTimeInMs: 5000,
+            retry: { retries: 5, initialRetryTime: 1000 }
+        });
 
-            const topics = [
-                process.env.VITAL_SIGNS_TOPIC || 'VITALSIGN_LIVE',
-                process.env.WAVEFORM_TOPIC || 'WAVEFORM_LIVE',
-                process.env.LIMITS_TOPIC || 'LIMITS_LIVE',
-                process.env.ESCALATION_TOPIC || 'ESCALATION_LIVE'
-            ];
+        console.log('🔌 Connecting to Kafka...');
+        await this.consumer.connect();
+        console.log('✅ Connected to Kafka broker');
 
-            const fromBeginning = process.env.FROM_BEGINNING === 'true';
+        const topics = [
+            process.env.VITAL_SIGNS_TOPIC || 'VITALSIGN_LIVE',
+            process.env.WAVEFORM_TOPIC || 'WAVEFORM_LIVE',
+            process.env.LIMITS_TOPIC || 'LIMITS_LIVE',
+            process.env.ESCALATION_TOPIC || 'ESCALATION_LIVE'
+        ];
 
-            for (const topic of topics) {
+        const fromBeginning = process.env.FROM_BEGINNING === 'true';
+
+        // ✅ CRITICAL: Subscribe to ALL topics at once using 'topics' array
+        console.log('📋 Subscribing to topics:', topics);
+        await this.consumer.subscribe({ 
+            topics: topics,  // Use 'topics' (plural) with array
+            fromBeginning: fromBeginning 
+        });
+        
+        console.log(`✅ Successfully subscribed to ${topics.length} topics`);
+        topics.forEach(topic => console.log(`   ✓ ${topic}`));
+
+        this.isRunning = true;
+        console.log('🎯 Starting message consumption...');
+        console.log('📡 Forwarding data to dashboard bridge...');
+
+        await this.consumer.run({
+            eachMessage: async ({ topic, partition, message }) => {
                 try {
-                    await this.consumer.subscribe({ topic, fromBeginning });
-                    console.log(`✅ Subscribed to: ${topic}`);
+                    this.trackPartitionUsage(topic, partition);
+
+                    const messageInfo = { 
+                        topic, 
+                        partition, 
+                        message, 
+                        offset: message.offset 
+                    };
+                    
+                    const handler = this.messageHandlers.get(topic) || this.messageHandlers.get('default');
+                    await handler(messageInfo);
+
                 } catch (error) {
-                    console.warn(`⚠️  Could not subscribe to ${topic}:`, error.message);
+                    console.error('Error processing message:', error.message);
                 }
-            }
+            },
+        });
 
-            this.isRunning = true;
-            console.log('🎯 Starting message consumption...');
-            console.log('📡 Forwarding data to dashboard bridge...');
+        console.log('✅ Consumer running - Data flowing to ICU Dashboard!');
 
-            await this.consumer.run({
-                eachMessage: async ({ topic, partition, message }) => {
-                    try {
-                        this.trackPartitionUsage(topic, partition);
-
-                        const messageInfo = { 
-                            topic, 
-                            partition, 
-                            message, 
-                            offset: message.offset 
-                        };
-                        
-                        const handler = this.messageHandlers.get(topic) || this.messageHandlers.get('default');
-                        await handler(messageInfo);
-
-                    } catch (error) {
-                        console.error('Error processing message:', error.message);
-                    }
-                },
-            });
-
-            console.log('✅ Consumer running - Data flowing to ICU Dashboard!');
-
-        } catch (error) {
-            console.error('❌ Error starting consumer:', error.message);
-            process.exit(1);
-        }
+    } catch (error) {
+        console.error('❌ Error starting consumer:', error.message);
+        process.exit(1);
     }
+}
+
 
     async stop() {
         if (this.isRunning && this.consumer) {
