@@ -1,6 +1,8 @@
-import { User, Activity, AlertTriangle } from 'lucide-react';
+import { useState } from 'react';
+import { User, Activity, AlertTriangle, Maximize2 } from 'lucide-react';
 import WaveformChart from './WaveformChart';
 import { usePatientAlerts } from '../hooks/usePatientAlerts';
+import PatientDetailModal from './PatientDetailModal';
 
 // Hospital name mapping
 const HOSPITAL_NAMES = {
@@ -19,9 +21,11 @@ const getHospitalName = (groupName) => {
   return HOSPITAL_NAMES[groupName] || groupName;
 };
 
-const PatientCard = ({ patient, waveforms = [] ,isMuted }) => {
+const PatientCard = ({ patient, waveforms = [], isMuted }) => {
   const { information, VS = [], status } = patient;
-const { alerts, hasCritical } = usePatientAlerts(patient, waveforms, isMuted);  
+  const { alerts, hasCritical } = usePatientAlerts(patient, waveforms, isMuted);
+  const [showModal, setShowModal] = useState(false);
+  
   // Get vital signs by name - return '--' if not found
   const getVital = (name) => {
     if (!VS || VS.length === 0) return '--';
@@ -95,111 +99,133 @@ const { alerts, hasCritical } = usePatientAlerts(patient, waveforms, isMuted);
     recentWaveforms[recentWaveforms.length - 1] : null);
 
   return (
-    <div className={`bg-icu-card rounded-lg p-4 hover:border-icu-green/30 transition-all ${
-      hasCritical 
-        ? 'border-2 border-red-500 animate-pulse shadow-lg shadow-red-500/50' 
-        : 'border border-icu-border'
-    }`}>
-      {/* Alert Banner */}
-      {alerts.length > 0 && (
-        <div className="mb-3 space-y-1">
-          {alerts.map((alert, idx) => (
-            <div
-              key={idx}
-              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold ${
-                alert.type === 'CRITICAL'
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse'
-                  : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50'
-              }`}
-            >
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1">{alert.message}</span>
-              <span className="text-xs">{alert.icon}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <User className="w-5 h-5 text-gray-400" />
-          <div>
-            <div className="font-mono font-bold text-white">{information?.deviceId || 'Unknown'}</div>
-            <div className="text-xs text-gray-400">
-              {information?.groupName || 'ICU'} - {getHospitalName(information?.groupName)} • Bed: {information?.bedId || 'N/A'}
-            </div>
-            {information?.patientId && information.patientId !== `PT${information.deviceId?.substring(0, 6)}` && (
-              <div className="text-xs text-icu-green font-mono mt-0.5">
-                ID: {information.patientId}
+    <>
+      <div className={`bg-icu-card rounded-lg p-4 hover:border-icu-green/30 transition-all ${
+        hasCritical 
+          ? 'border-2 border-red-500 animate-pulse shadow-lg shadow-red-500/50' 
+          : 'border border-icu-border'
+      }`}>
+        {/* Alert Banner */}
+        {alerts.length > 0 && (
+          <div className="mb-3 space-y-1">
+            {alerts.map((alert, idx) => (
+              <div
+                key={idx}
+                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold ${
+                  alert.type === 'CRITICAL'
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse'
+                    : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50'
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span className="flex-1">{alert.message}</span>
+                <span className="text-xs">{alert.icon}</span>
               </div>
-            )}
+            ))}
+          </div>
+        )}
+        
+        {/* Header with View Details Button */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <User className="w-5 h-5 text-gray-400" />
+            <div>
+              <div className="font-mono font-bold text-white">{information?.deviceId || 'Unknown'}</div>
+              <div className="text-xs text-gray-400">
+                {information?.groupName || 'ICU'} - {getHospitalName(information?.groupName)} • Bed: {information?.bedId || 'N/A'}
+              </div>
+              {information?.patientId && information.patientId !== `PT${information.deviceId?.substring(0, 6)}` && (
+                <div className="text-xs text-icu-green font-mono mt-0.5">
+                  ID: {information.patientId}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor()}`}>
+              {getStatusText()}
+            </span>
+            <button
+              onClick={() => setShowModal(true)}
+              className="bg-icu-green/20 hover:bg-icu-green/30 text-icu-green p-2 rounded-lg transition-all border border-icu-green/50 hover:border-icu-green group"
+              title="View Details"
+            >
+              <Maximize2 className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            </button>
           </div>
         </div>
-        <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor()}`}>
-          {getStatusText()}
-        </span>
-      </div>
 
-      {/* Vital Signs Grid */}
-      <div className="grid grid-cols-4 gap-3 mb-4">
-        <VitalSign icon="❤️" label="HR" value={getVital('HR')} unit="bpm" />
-        <VitalSign icon="💨" label="SPO2" value={getVital('SpO2')} unit="%" />
-        <VitalSign icon="🌡️" label="TEMP" value={getVital('Tskin') || getVital('Trect')} unit="°C" />
-        <VitalSign icon="🫁" label="RR" value={getVital('RR') || getVital('RR/CO2')} unit="bpm" />
-      </div>
+        {/* Vital Signs Grid */}
+        <div className="grid grid-cols-4 gap-3 mb-4">
+          <VitalSign icon="❤️" label="HR" value={getVital('HR')} unit="bpm" />
+          <VitalSign icon="💨" label="SPO2" value={getVital('SpO2')} unit="%" />
+          <VitalSign icon="🌡️" label="TEMP" value={getVital('Tskin') || getVital('Trect')} unit="°C" />
+          <VitalSign icon="🫁" label="RR" value={getVital('RR') || getVital('RR/CO2')} unit="bpm" />
+        </div>
 
-      {/* ECG Waveform */}
-      <div className="mb-3">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-semibold text-gray-400">
-            ECG {ecgWaveform?.waveform?.name || fallbackECG?.waveform?.name || 'II'}
-          </span>
-          {fallbackECG?.waveform?.data && (
-            <span className="flex items-center gap-1">
-              <Activity className="w-3 h-3 text-icu-green animate-pulse-glow" />
-              <span className="text-xs text-icu-green">Live</span>
+        {/* ECG Waveform */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-gray-400">
+              ECG {ecgWaveform?.waveform?.name || fallbackECG?.waveform?.name || 'II'}
             </span>
-          )}
+            {fallbackECG?.waveform?.data && (
+              <span className="flex items-center gap-1">
+                <Activity className="w-3 h-3 text-icu-green animate-pulse-glow" />
+                <span className="text-xs text-icu-green">Live</span>
+              </span>
+            )}
+          </div>
+          <div className="bg-black/50 rounded-md border border-icu-border overflow-hidden">
+            <WaveformChart 
+              data={fallbackECG} 
+              color="#00ff88" 
+              height={120}
+            />
+          </div>
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <span>25mm/s</span>
+            <span>{fallbackECG?.waveform?.data ? 'Active' : 'Waiting'}</span>
+            <span>10mm/mV</span>
+          </div>
         </div>
-        <div className="bg-black/50 rounded-md border border-icu-border overflow-hidden">
-          <WaveformChart 
-            data={fallbackECG} 
-            color="#00ff88" 
-            height={120}
-          />
-        </div>
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>25mm/s</span>
-          <span>{fallbackECG?.waveform?.data ? 'Active' : 'Waiting'}</span>
-          <span>10mm/mV</span>
+
+        {/* SpO2 Waveform */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-gray-400">SpO2</span>
+            {spo2Waveform?.waveform?.data && (
+              <span className="flex items-center gap-1">
+                <Activity className="w-3 h-3 text-icu-blue animate-pulse-glow" />
+                <span className="text-xs text-icu-blue">Live</span>
+              </span>
+            )}
+          </div>
+          <div className="bg-black/50 rounded-md border border-icu-border overflow-hidden">
+            <WaveformChart 
+              data={spo2Waveform} 
+              color="#00a8ff" 
+              height={100}
+            />
+          </div>
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <span>25mm/s</span>
+            <span>{spo2Waveform?.waveform?.data ? 'Active' : 'Waiting'}</span>
+            <span>10mm/mV</span>
+          </div>
         </div>
       </div>
 
-      {/* SpO2 Waveform */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-semibold text-gray-400">SpO2</span>
-          {spo2Waveform?.waveform?.data && (
-            <span className="flex items-center gap-1">
-              <Activity className="w-3 h-3 text-icu-blue animate-pulse-glow" />
-              <span className="text-xs text-icu-blue">Live</span>
-            </span>
-          )}
-        </div>
-        <div className="bg-black/50 rounded-md border border-icu-border overflow-hidden">
-          <WaveformChart 
-            data={spo2Waveform} 
-            color="#00a8ff" 
-            height={100}
-          />
-        </div>
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>25mm/s</span>
-          <span>{spo2Waveform?.waveform?.data ? 'Active' : 'Waiting'}</span>
-          <span>10mm/mV</span>
-        </div>
-      </div>
-    </div>
+      {/* Patient Detail Modal */}
+      {showModal && (
+        <PatientDetailModal
+          patient={patient}
+          waveforms={waveforms}
+          alerts={alerts}
+          onClose={() => setShowModal(false)}
+        />
+      )}
+    </>
   );
 };
 
