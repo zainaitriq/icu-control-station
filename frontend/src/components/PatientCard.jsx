@@ -2,6 +2,23 @@ import { User, Activity, AlertTriangle } from 'lucide-react';
 import WaveformChart from './WaveformChart';
 import { usePatientAlerts } from '../hooks/usePatientAlerts';
 
+// Hospital name mapping
+const HOSPITAL_NAMES = {
+  'TGH': 'Tafeela',
+  'RGH': 'Ramtha',
+  'MNGH': 'Maan',
+  'MFG': 'Mafraq',
+  'AIGH': 'Ajloun',
+  'AISH': 'Ajloun', // Alternative abbreviation
+  'ICU': 'ICU'
+};
+
+// Helper function to get full hospital name
+const getHospitalName = (groupName) => {
+  if (!groupName) return 'ICU';
+  return HOSPITAL_NAMES[groupName] || groupName;
+};
+
 const PatientCard = ({ patient, waveforms = [] ,isMuted }) => {
   const { information, VS = [], status } = patient;
 const { alerts, hasCritical } = usePatientAlerts(patient, waveforms, isMuted);  
@@ -74,7 +91,8 @@ const { alerts, hasCritical } = usePatientAlerts(patient, waveforms, isMuted);
   const spo2Waveform = findWaveform(['SpO2', 'SPO2', 'Spo2']);
 
   // Fallback: if no specific waveforms found, use any recent waveform for ECG
-  const fallbackECG = ecgWaveform || (recentWaveforms.length > 0 ? recentWaveforms[recentWaveforms.length - 1] : null);
+  const fallbackECG = ecgWaveform || (recentWaveforms.length > 0 ?
+    recentWaveforms[recentWaveforms.length - 1] : null);
 
   return (
     <div className={`bg-icu-card rounded-lg p-4 hover:border-icu-green/30 transition-all ${
@@ -108,7 +126,7 @@ const { alerts, hasCritical } = usePatientAlerts(patient, waveforms, isMuted);
           <div>
             <div className="font-mono font-bold text-white">{information?.deviceId || 'Unknown'}</div>
             <div className="text-xs text-gray-400">
-              {information?.groupName || 'ICU'} • {information?.bedId || 'N/A'}
+              {information?.groupName || 'ICU'} - {getHospitalName(information?.groupName)} • Bed: {information?.bedId || 'N/A'}
             </div>
             {information?.patientId && information.patientId !== `PT${information.deviceId?.substring(0, 6)}` && (
               <div className="text-xs text-icu-green font-mono mt-0.5">
