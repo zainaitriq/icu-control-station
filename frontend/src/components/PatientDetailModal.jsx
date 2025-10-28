@@ -194,57 +194,55 @@ const PatientDetailModal = ({ patient, waveforms = [], alerts = [], onClose }) =
             Live Waveforms
           </h3>
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* ECG Waveform */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold text-gray-300">
-                  ECG {ecgWaveform?.waveform?.name || fallbackECG?.waveform?.name || 'II'}
+          {/* ECG Waveform */}
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-gray-300">
+                ECG {ecgWaveform?.waveform?.name || fallbackECG?.waveform?.name || 'II'}
+              </span>
+              {fallbackECG?.waveform?.data && (
+                <span className="flex items-center gap-1">
+                  <Activity className="w-3 h-3 text-icu-green animate-pulse-glow" />
+                  <span className="text-xs text-icu-green font-semibold">Live</span>
                 </span>
-                {fallbackECG?.waveform?.data && (
-                  <span className="flex items-center gap-1">
-                    <Activity className="w-3 h-3 text-icu-green animate-pulse-glow" />
-                    <span className="text-xs text-icu-green font-semibold">Live</span>
-                  </span>
-                )}
-              </div>
-              <div className="bg-black/50 rounded border border-icu-green/50 overflow-hidden">
-                <WaveformChart 
-                  data={fallbackECG} 
-                  color="#00ff88" 
-                  height={150}
-                />
-              </div>
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>25mm/s</span>
-                <span>{fallbackECG?.waveform?.data ? 'Active' : 'Waiting'}</span>
-                <span>10mm/mV</span>
-              </div>
+              )}
             </div>
+            <div className="bg-black/50 rounded border border-icu-green/50 overflow-hidden">
+              <WaveformChart 
+                data={fallbackECG} 
+                color="#00ff88" 
+                height={140}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>25mm/s</span>
+              <span>{fallbackECG?.waveform?.data ? 'Active' : 'Waiting'}</span>
+              <span>10mm/mV</span>
+            </div>
+          </div>
 
-            {/* SpO2 Waveform */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold text-gray-300">SpO2 Plethysmograph</span>
-                {spo2Waveform?.waveform?.data && (
-                  <span className="flex items-center gap-1">
-                    <Activity className="w-3 h-3 text-icu-blue animate-pulse-glow" />
-                    <span className="text-xs text-icu-blue font-semibold">Live</span>
-                  </span>
-                )}
-              </div>
-              <div className="bg-black/50 rounded border border-icu-blue/50 overflow-hidden">
-                <WaveformChart 
-                  data={spo2Waveform} 
-                  color="#00a8ff" 
-                  height={150}
-                />
-              </div>
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>25mm/s</span>
-                <span>{spo2Waveform?.waveform?.data ? 'Active' : 'Waiting'}</span>
-                <span>10mm/mV</span>
-              </div>
+          {/* SpO2 Waveform */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-gray-300">SpO2 Plethysmograph</span>
+              {spo2Waveform?.waveform?.data && (
+                <span className="flex items-center gap-1">
+                  <Activity className="w-3 h-3 text-icu-blue animate-pulse-glow" />
+                  <span className="text-xs text-icu-blue font-semibold">Live</span>
+                </span>
+              )}
+            </div>
+            <div className="bg-black/50 rounded border border-icu-blue/50 overflow-hidden">
+              <WaveformChart 
+                data={spo2Waveform} 
+                color="#00a8ff" 
+                height={140}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>25mm/s</span>
+              <span>{spo2Waveform?.waveform?.data ? 'Active' : 'Waiting'}</span>
+              <span>10mm/mV</span>
             </div>
           </div>
         </div>
