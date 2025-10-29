@@ -134,7 +134,7 @@ function App() {
           <div className="flex items-center gap-3">
             <Activity className="w-8 h-8 text-icu-green" />
             <div>
-              <h1 className="text-2xl font-bold">Certacure</h1>
+              <h1 className="text-2xl font-bold">Experia</h1>
               <p className="text-sm text-gray-400">Real-time Patient Monitoring</p>
             </div>
           </div>
