@@ -160,7 +160,7 @@ class FixedNKDHSConsumer {
                 this.messageCount++;
                 
                 if (this.messageCount % 20 === 0) {
-                    console.log(`💓 VITAL SIGNS: Device=${data.information?.deviceId} Patient=${data.information?.patientId} Count=${this.messageCount}`);
+                    console.log(`💓 VITAL SIGNS: Device=${data.information?.deviceId} Patient=${data.information?.patientId} Count=${this.messageCount} `);
                 }
 
                 const success = await this.sendToBridge('/kafka/vitals', {
@@ -171,6 +171,7 @@ class FixedNKDHSConsumer {
                         value: messageValue
                     }
                 });
+               // console.log(`💓 VITAL SIGNS: topic=${messageInfo.topic} partition=${ messageInfo.partition} offset=${messageInfo.offset} Message Value=${ messageValue}`);
 
                 if (!success && this.messageCount % 50 === 0) {
                     console.log('⚠️  Bridge not available for vital signs');
