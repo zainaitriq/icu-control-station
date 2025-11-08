@@ -19,9 +19,9 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
   const [waveformType, setWaveformType] = useState('ECG');
   
   // Configuration
-  const MIN_BUFFER_SIZE = 400;
-  const DISPLAY_WIDTH = 250;
-  const POINTS_PER_SECOND = 40;
+  const MIN_BUFFER_SIZE = 800;//400;
+  const DISPLAY_WIDTH = 600;//250;
+  const POINTS_PER_SECOND = 60;//40;
   const MAX_BUFFER_SIZE = 10000; // Prevent memory issues
 
   // Detect waveform type from data
