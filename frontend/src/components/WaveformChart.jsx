@@ -263,17 +263,33 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         
       } else if (hasData && displayBufferRef.current.length > 0) {
         const validData = displayBufferRef.current.filter(v => v !== null && !isNaN(v));
-        
+
         if (validData.length > 0) {
-          const min = Math.min(...validData);
-          const max = Math.max(...validData);
-          const range = max - min || 1;
-          
+          let min, max, range;
+
+          // For ECG waveforms, use percentile-based range to ignore outlier peaks
+          // This prevents irregular peaks from compressing the waveform
+          if (waveformType === 'ECG') {
+            const sorted = [...validData].sort((a, b) => a - b);
+            const p5Index = Math.floor(sorted.length * 0.05);
+            const p95Index = Math.floor(sorted.length * 0.95);
+            min = sorted[p5Index];
+            max = sorted[p95Index];
+            range = max - min || 1;
+          } else {
+            // For SPO2, use full range as before
+            min = Math.min(...validData);
+            max = Math.max(...validData);
+            range = max - min || 1;
+          }
+
           const normalize = (val) => {
             if (val === null || isNaN(val)) return canvasHeight / 2;
-            
-            const normalized = (val - min) / range;
-            
+
+            // Clamp the value to min/max range to prevent outliers from going off-screen
+            const clampedVal = Math.max(min, Math.min(max, val));
+            const normalized = (clampedVal - min) / range;
+
             if (waveformType === 'SPO2') {
               return canvasHeight - (normalized * (canvasHeight * 0.75)) - (canvasHeight * 0.125);
             } else {
