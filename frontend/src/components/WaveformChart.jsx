@@ -13,7 +13,10 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
   const animationRef = useRef(null);
   const lastFrameTimeRef = useRef(Date.now());
   const lastDataReceivedRef = useRef(Date.now());
-  
+
+  // Stable y-axis range for ECG to prevent rescaling on every frame
+  const stableRangeRef = useRef({ min: null, max: null, lastUpdate: 0 });
+
   const [isBuffering, setIsBuffering] = useState(true);
   const [hasData, setHasData] = useState(false);
   const [waveformType, setWaveformType] = useState('ECG');
@@ -263,17 +266,59 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         
       } else if (hasData && displayBufferRef.current.length > 0) {
         const validData = displayBufferRef.current.filter(v => v !== null && !isNaN(v));
-        
+
         if (validData.length > 0) {
-          const min = Math.min(...validData);
-          const max = Math.max(...validData);
-          const range = max - min || 1;
-          
+          let min, max, range;
+
+          // For ECG waveforms, use stable percentile-based range to prevent rescaling
+          // This prevents irregular peaks from causing vertical shifts
+          if (waveformType === 'ECG') {
+            const now = Date.now();
+            const updateInterval = 3000; // Update range every 3 seconds
+
+            // Initialize or update stable range periodically
+            if (stableRangeRef.current.min === null ||
+                stableRangeRef.current.max === null ||
+                now - stableRangeRef.current.lastUpdate > updateInterval) {
+
+              // Calculate percentile from entire data buffer for stable scale
+              const largeDataWindow = dataBufferRef.current.length > 2000
+                ? dataBufferRef.current.slice(-2000) // Use last 2000 points
+                : dataBufferRef.current;
+
+              const validLargeData = largeDataWindow.filter(v => v !== null && !isNaN(v));
+
+              if (validLargeData.length > 0) {
+                const sorted = [...validLargeData].sort((a, b) => a - b);
+                const p5Index = Math.floor(sorted.length * 0.05);
+                const p95Index = Math.floor(sorted.length * 0.95);
+
+                stableRangeRef.current = {
+                  min: sorted[p5Index],
+                  max: sorted[p95Index],
+                  lastUpdate: now
+                };
+              }
+            }
+
+            // Use stable range
+            min = stableRangeRef.current.min;
+            max = stableRangeRef.current.max;
+            range = max - min || 1;
+          } else {
+            // For SPO2, use dynamic range from display buffer
+            min = Math.min(...validData);
+            max = Math.max(...validData);
+            range = max - min || 1;
+          }
+
           const normalize = (val) => {
             if (val === null || isNaN(val)) return canvasHeight / 2;
-            
-            const normalized = (val - min) / range;
-            
+
+            // Clamp the value to min/max range to prevent outliers from going off-screen
+            const clampedVal = Math.max(min, Math.min(max, val));
+            const normalized = (clampedVal - min) / range;
+
             if (waveformType === 'SPO2') {
               return canvasHeight - (normalized * (canvasHeight * 0.75)) - (canvasHeight * 0.125);
             } else {
