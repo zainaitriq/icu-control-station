@@ -101,29 +101,33 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
   return (
     <>
       <div className={`bg-icu-card rounded-lg p-4 hover:border-icu-green/30 transition-all ${
-        hasCritical 
-          ? 'border-2 border-red-500 animate-pulse shadow-lg shadow-red-500/50' 
+        hasCritical
+          ? 'border-2 border-red-500 animate-pulse shadow-lg shadow-red-500/50'
           : 'border border-icu-border'
       }`}>
-        {/* Alert Banner */}
-        {alerts.length > 0 && (
-          <div className="mb-3 space-y-1">
-            {alerts.map((alert, idx) => (
-              <div
-                key={idx}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold ${
-                  alert.type === 'CRITICAL'
-                    ? 'bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse'
-                    : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50'
-                }`}
-              >
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span className="flex-1">{alert.message}</span>
-                <span className="text-xs">{alert.icon}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Alert Banner - Fixed height to prevent card resizing */}
+        <div className="mb-3 h-[72px] overflow-y-auto scrollbar-thin scrollbar-thumb-icu-border scrollbar-track-transparent">
+          {alerts.length > 0 ? (
+            <div className="space-y-1">
+              {alerts.map((alert, idx) => (
+                <div
+                  key={idx}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold ${
+                    alert.type === 'CRITICAL'
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse'
+                      : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50'
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span className="flex-1">{alert.message}</span>
+                  <span className="text-xs">{alert.icon}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="h-full" />
+          )}
+        </div>
         
         {/* Header with View Details Button */}
         <div className="flex items-center justify-between mb-4">
