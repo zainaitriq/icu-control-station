@@ -14,8 +14,14 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
   const lastFrameTimeRef = useRef(Date.now());
   const lastDataReceivedRef = useRef(Date.now());
 
-  // Stable y-axis range for ECG to prevent rescaling on every frame
-  const stableRangeRef = useRef({ min: null, max: null, lastUpdate: 0 });
+  // Fixed y-axis range for ECG to prevent rescaling completely
+  // This prevents vertical shifting when irregular or high-amplitude beats occur
+  const stableRangeRef = useRef({
+    min: null,
+    max: null,
+    lastUpdate: 0,
+    initialized: false
+  });
 
   const [isBuffering, setIsBuffering] = useState(true);
   const [hasData, setHasData] = useState(false);
@@ -270,41 +276,52 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         if (validData.length > 0) {
           let min, max, range;
 
-          // For ECG waveforms, use stable percentile-based range to prevent rescaling
-          // This prevents irregular peaks from causing vertical shifts
+          // For ECG waveforms, use a truly fixed range to prevent any rescaling
+          // This completely prevents irregular peaks from causing vertical shifts
           if (waveformType === 'ECG') {
-            const now = Date.now();
-            const updateInterval = 3000; // Update range every 3 seconds
+            // Initialize range ONCE from the first batch of data
+            if (!stableRangeRef.current.initialized && dataBufferRef.current.length >= MIN_BUFFER_SIZE) {
+              // Use first 3000 points to establish baseline range
+              const initWindow = dataBufferRef.current.slice(0, Math.min(3000, dataBufferRef.current.length));
+              const validInitData = initWindow.filter(v => v !== null && !isNaN(v));
 
-            // Initialize or update stable range periodically
-            if (stableRangeRef.current.min === null ||
-                stableRangeRef.current.max === null ||
-                now - stableRangeRef.current.lastUpdate > updateInterval) {
+              if (validInitData.length > 100) {
+                const sorted = [...validInitData].sort((a, b) => a - b);
 
-              // Calculate percentile from entire data buffer for stable scale
-              const largeDataWindow = dataBufferRef.current.length > 2000
-                ? dataBufferRef.current.slice(-2000) // Use last 2000 points
-                : dataBufferRef.current;
+                // Use 2nd-98th percentile to establish a stable baseline
+                // This filters out initial outliers but creates a fixed range
+                const p2Index = Math.floor(sorted.length * 0.02);
+                const p98Index = Math.floor(sorted.length * 0.98);
 
-              const validLargeData = largeDataWindow.filter(v => v !== null && !isNaN(v));
+                const baseMin = sorted[p2Index];
+                const baseMax = sorted[p98Index];
+                const baseRange = baseMax - baseMin;
 
-              if (validLargeData.length > 0) {
-                const sorted = [...validLargeData].sort((a, b) => a - b);
-                const p5Index = Math.floor(sorted.length * 0.05);
-                const p95Index = Math.floor(sorted.length * 0.95);
+                // Add 40% padding to accommodate future peaks without rescaling
+                const padding = baseRange * 0.4;
 
                 stableRangeRef.current = {
-                  min: sorted[p5Index],
-                  max: sorted[p95Index],
-                  lastUpdate: now
+                  min: baseMin - padding,
+                  max: baseMax + padding,
+                  lastUpdate: Date.now(),
+                  initialized: true
                 };
+
+                console.log(`[ECG] Fixed Y-axis range initialized: [${stableRangeRef.current.min.toFixed(1)}, ${stableRangeRef.current.max.toFixed(1)}]`);
               }
             }
 
-            // Use stable range
-            min = stableRangeRef.current.min;
-            max = stableRangeRef.current.max;
-            range = max - min || 1;
+            // Use the fixed range (never update it after initialization)
+            if (stableRangeRef.current.initialized) {
+              min = stableRangeRef.current.min;
+              max = stableRangeRef.current.max;
+              range = max - min || 1;
+            } else {
+              // Fallback while initializing
+              min = Math.min(...validData);
+              max = Math.max(...validData);
+              range = max - min || 1;
+            }
           } else {
             // For SPO2, use dynamic range from display buffer
             min = Math.min(...validData);
