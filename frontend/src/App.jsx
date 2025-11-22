@@ -9,6 +9,9 @@ function App() {
   const [selectedFilter, setSelectedFilter] = useState('ALL');
   const [waitingTime, setWaitingTime] = useState(0);
   const [isGlobalMuted, setIsGlobalMuted] = useState(true);
+  const [showCriticalTooltip, setShowCriticalTooltip] = useState(false);
+  const [showWarningTooltip, setShowWarningTooltip] = useState(false);
+  const [showNormalTooltip, setShowNormalTooltip] = useState(false);
 
 
   // Track waiting time
@@ -80,6 +83,73 @@ function App() {
     });
 
     return { normal, warning, critical };
+  }, [patientsArray]);
+
+  // Get critical patients by ICU/hospital group
+  const criticalByICU = useMemo(() => {
+    const icuMap = new Map();
+
+    patientsArray.forEach(patient => {
+      const hr = parseInt(patient.VS?.find(v => v.name === 'HR')?.value || 0);
+      const spo2 = parseInt(patient.VS?.find(v => v.name === 'SpO2')?.value || 0);
+      const groupName = patient.information?.groupName || 'Unknown';
+
+      // Check if patient is critical
+      if (hr < 40 || hr > 120 || spo2 < 90) {
+        if (!icuMap.has(groupName)) {
+          icuMap.set(groupName, 0);
+        }
+        icuMap.set(groupName, icuMap.get(groupName) + 1);
+      }
+    });
+
+    return icuMap;
+  }, [patientsArray]);
+
+  // Get warning patients by ICU/hospital group
+  const warningByICU = useMemo(() => {
+    const icuMap = new Map();
+
+    patientsArray.forEach(patient => {
+      const hr = parseInt(patient.VS?.find(v => v.name === 'HR')?.value || 0);
+      const spo2 = parseInt(patient.VS?.find(v => v.name === 'SpO2')?.value || 0);
+      const groupName = patient.information?.groupName || 'Unknown';
+
+      // Check if patient is warning (not critical)
+      if (!(hr < 40 || hr > 120 || spo2 < 90)) {
+        if (hr < 50 || hr > 100 || spo2 < 95) {
+          if (!icuMap.has(groupName)) {
+            icuMap.set(groupName, 0);
+          }
+          icuMap.set(groupName, icuMap.get(groupName) + 1);
+        }
+      }
+    });
+
+    return icuMap;
+  }, [patientsArray]);
+
+  // Get normal patients by ICU/hospital group
+  const normalByICU = useMemo(() => {
+    const icuMap = new Map();
+
+    patientsArray.forEach(patient => {
+      const hr = parseInt(patient.VS?.find(v => v.name === 'HR')?.value || 0);
+      const spo2 = parseInt(patient.VS?.find(v => v.name === 'SpO2')?.value || 0);
+      const groupName = patient.information?.groupName || 'Unknown';
+
+      // Check if patient is normal (not critical or warning)
+      if (!(hr < 40 || hr > 120 || spo2 < 90)) {
+        if (!(hr < 50 || hr > 100 || spo2 < 95)) {
+          if (!icuMap.has(groupName)) {
+            icuMap.set(groupName, 0);
+          }
+          icuMap.set(groupName, icuMap.get(groupName) + 1);
+        }
+      }
+    });
+
+    return icuMap;
   }, [patientsArray]);
 
   // Count total alerts across all patients
@@ -239,17 +309,104 @@ function App() {
             <div className="text-sm text-gray-400 mb-1">Total Patients</div>
             <div className="text-3xl font-bold">{patientsArray.length}</div>
           </div>
-          <div className="bg-icu-card border border-green-500/20 rounded-lg p-4">
+          <div
+            className="bg-icu-card border border-green-500/20 rounded-lg p-4 relative cursor-pointer hover:border-green-500/50 transition-all"
+            onMouseEnter={() => setShowNormalTooltip(true)}
+            onMouseLeave={() => setShowNormalTooltip(false)}
+          >
             <div className="text-sm text-gray-400 mb-1">Normal</div>
             <div className="text-3xl font-bold text-icu-green">{statusCounts.normal}</div>
+
+            {/* Tooltip */}
+            {showNormalTooltip && normalByICU.size > 0 && (
+              <div className="absolute z-50 left-0 top-full mt-2 bg-icu-dark border border-green-500/50 rounded-lg shadow-xl p-4 min-w-[250px]">
+                <div className="text-sm font-semibold text-green-400 mb-2 flex items-center gap-2">
+                  <Activity className="w-4 h-4" />
+                  Normal ICUs
+                </div>
+                <div className="space-y-2">
+                  {Array.from(normalByICU.entries())
+                    .sort((a, b) => b[1] - a[1]) // Sort by count descending
+                    .map(([icu, count]) => (
+                      <div key={icu} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-300 font-medium">{icu}</span>
+                        <span className="text-green-400 font-bold bg-green-500/20 px-2 py-1 rounded">
+                          {count} {count === 1 ? 'patient' : 'patients'}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+                <div className="mt-3 pt-3 border-t border-green-500/20 text-xs text-gray-500">
+                  Normal: HR 50-100 bpm, SpO2 ≥95%
+                </div>
+              </div>
+            )}
           </div>
-          <div className="bg-icu-card border border-yellow-500/20 rounded-lg p-4">
+          <div
+            className="bg-icu-card border border-yellow-500/20 rounded-lg p-4 relative cursor-pointer hover:border-yellow-500/50 transition-all"
+            onMouseEnter={() => setShowWarningTooltip(true)}
+            onMouseLeave={() => setShowWarningTooltip(false)}
+          >
             <div className="text-sm text-gray-400 mb-1">Warning</div>
             <div className="text-3xl font-bold text-icu-warning">{statusCounts.warning}</div>
+
+            {/* Tooltip */}
+            {showWarningTooltip && warningByICU.size > 0 && (
+              <div className="absolute z-50 left-0 top-full mt-2 bg-icu-dark border border-yellow-500/50 rounded-lg shadow-xl p-4 min-w-[250px]">
+                <div className="text-sm font-semibold text-yellow-400 mb-2 flex items-center gap-2">
+                  <Bell className="w-4 h-4" />
+                  Warning ICUs
+                </div>
+                <div className="space-y-2">
+                  {Array.from(warningByICU.entries())
+                    .sort((a, b) => b[1] - a[1]) // Sort by count descending
+                    .map(([icu, count]) => (
+                      <div key={icu} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-300 font-medium">{icu}</span>
+                        <span className="text-yellow-400 font-bold bg-yellow-500/20 px-2 py-1 rounded">
+                          {count} {count === 1 ? 'patient' : 'patients'}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+                <div className="mt-3 pt-3 border-t border-yellow-500/20 text-xs text-gray-500">
+                  Warning: HR 40-50 or 100-120 bpm, SpO2 90-95%
+                </div>
+              </div>
+            )}
           </div>
-          <div className="bg-icu-card border border-red-500/20 rounded-lg p-4">
+          <div
+            className="bg-icu-card border border-red-500/20 rounded-lg p-4 relative cursor-pointer hover:border-red-500/50 transition-all"
+            onMouseEnter={() => setShowCriticalTooltip(true)}
+            onMouseLeave={() => setShowCriticalTooltip(false)}
+          >
             <div className="text-sm text-gray-400 mb-1">Critical</div>
             <div className="text-3xl font-bold text-icu-critical">{statusCounts.critical}</div>
+
+            {/* Tooltip */}
+            {showCriticalTooltip && criticalByICU.size > 0 && (
+              <div className="absolute z-50 left-0 top-full mt-2 bg-icu-dark border border-red-500/50 rounded-lg shadow-xl p-4 min-w-[250px]">
+                <div className="text-sm font-semibold text-red-400 mb-2 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  Critical ICUs
+                </div>
+                <div className="space-y-2">
+                  {Array.from(criticalByICU.entries())
+                    .sort((a, b) => b[1] - a[1]) // Sort by count descending
+                    .map(([icu, count]) => (
+                      <div key={icu} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-300 font-medium">{icu}</span>
+                        <span className="text-red-400 font-bold bg-red-500/20 px-2 py-1 rounded">
+                          {count} {count === 1 ? 'patient' : 'patients'}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+                <div className="mt-3 pt-3 border-t border-red-500/20 text-xs text-gray-500">
+                  Critical: HR &lt;40 or &gt;120 bpm, SpO2 &lt;90%
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
