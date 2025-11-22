@@ -173,23 +173,20 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         accumulatedTime = 0;
         
         const stepSize = waveformType === 'SPO2' ? 2 : 1;
-        
+
         for (let i = 0; i < pointsToAdvance; i++) {
-          // KEY FIX: Always cycle through available data
+          // Always cycle through available data progressively
           if (dataBufferRef.current.length > 0) {
-            // If we've reached the end, wrap around to show most recent data
+            // Wrap around to the beginning when reaching the end
             if (displayIndexRef.current >= dataBufferRef.current.length) {
-              // Start from recent data again
-              displayIndexRef.current = Math.max(0, dataBufferRef.current.length - DISPLAY_WIDTH);
-              displayBufferRef.current = dataBufferRef.current.slice(displayIndexRef.current, displayIndexRef.current + DISPLAY_WIDTH);
-            } else {
-              // Normal progression
-              displayBufferRef.current.shift();
-              if (displayIndexRef.current < dataBufferRef.current.length) {
-                displayBufferRef.current.push(dataBufferRef.current[displayIndexRef.current]);
-                displayIndexRef.current += stepSize;
-              }
+              // Reset index to continue from the start of the buffer
+              displayIndexRef.current = 0;
             }
+
+            // Always use progressive shift/push to maintain smooth continuity
+            displayBufferRef.current.shift();
+            displayBufferRef.current.push(dataBufferRef.current[displayIndexRef.current]);
+            displayIndexRef.current += stepSize;
           }
         }
       }
