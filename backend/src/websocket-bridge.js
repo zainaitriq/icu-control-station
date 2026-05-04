@@ -3,6 +3,17 @@ import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+
+// File logger for bridge vitals investigation
+const logsDir = path.resolve('logs');
+if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+const bridgeLogStream = fs.createWriteStream(path.join(logsDir, 'bridge-vitals.log'), { flags: 'a' });
+
+function logBridge(msg) {
+    bridgeLogStream.write(`[${new Date().toISOString()}] ${msg}\n`);
+}
 
 class DashboardBridge {
     constructor() {
@@ -28,10 +39,21 @@ class DashboardBridge {
             console.log('✅ New WebSocket client connected');
             this.clients.add(ws);
 
+            // Send initial patient data
             ws.send(JSON.stringify({
                 type: 'initial',
                 patients: Array.from(this.patientData.values())
             }));
+
+            // Send accumulated waveform data for each patient
+            this.waveformData.forEach((waveforms, deviceId) => {
+                waveforms.forEach(waveform => {
+                    ws.send(JSON.stringify({
+                        type: 'waveform',
+                        data: waveform
+                    }));
+                });
+            });
 
             ws.on('close', () => {
                 console.log('❌ Client disconnected');
@@ -153,6 +175,12 @@ class DashboardBridge {
                 const existingPatient = this.patientData.get(deviceId);
                 const preservedGroupName = existingPatient.information.groupName;
 
+                // Log received vitals for HR/SpO2 investigation
+                const vsArray = data.VS || [];
+                const hrVal = vsArray.find(v => v.name === 'HR');
+                const spo2Val = vsArray.find(v => v.name === 'SpO2');
+                logBridge(`BRIDGE VITALS [${deviceId}] HR=${hrVal?.value ?? 'N/A'} SpO2=${spo2Val?.value ?? 'N/A'} | raw VS count=${vsArray.length} | timestamp=${data.information?.timeStamp}`);
+
                 // Update patient data - PRESERVE the groupName we set
                 this.patientData.set(deviceId, {
                     ...data,
@@ -264,10 +292,10 @@ class DashboardBridge {
     }
 
     start(port = 8081) {
-        this.server.listen(port, () => {
+        this.server.listen(port, '0.0.0.0', () => {
             console.log(`✅ Dashboard Bridge running on port ${port}`);
-            console.log(`🌐 WebSocket: ws://localhost:${port}`);
-            console.log(`🌐 HTTP API: http://localhost:${port}`);
+            console.log(`🌐 WebSocket: ws://0.0.0.0:${port}`);
+            console.log(`🌐 HTTP API: http://0.0.0.0:${port}`);
         });
     }
 }

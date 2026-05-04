@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"C:\\\\Users\\\\LENOVO\\\\OneDrive - Inspire for Solutions Development\\\\Desktop\\\\ICU\\\\icu-control-station\\\\backend\\\\logs\"\" 2>/dev/null || echo \"No logs directory found \")"
+    ]
+  }
+}

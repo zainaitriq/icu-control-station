@@ -36,7 +36,7 @@ export const useWebSocket = (url) => {
           const newMap = new Map(prev);
           pendingWaveformsRef.current.forEach((waveformUpdates, deviceId) => {
             const existing = prev.get(deviceId) || [];
-            const updated = [...existing, ...waveformUpdates].slice(-50);
+            const updated = [...existing, ...waveformUpdates].slice(-100);
             newMap.set(deviceId, updated);
           });
           pendingWaveformsRef.current.clear();
@@ -51,7 +51,7 @@ export const useWebSocket = (url) => {
         updateTimerRef.current = setTimeout(() => {
           flushPendingUpdates();
           updateTimerRef.current = null;
-        }, 100); // Batch updates every 100ms
+        }, 50); // Batch updates every 50ms for faster responsiveness
       }
     };
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { User, Activity, AlertTriangle, Maximize2 } from 'lucide-react';
 import WaveformChart from './WaveformChart';
 import { usePatientAlerts } from '../hooks/usePatientAlerts';
@@ -71,32 +71,38 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
     return 'NORMAL';
   };
 
-  // Get the most recent 5 waveforms for this device
-  const recentWaveforms = waveforms.slice(-5);
+  // Keep the latest waveform per type (name) to avoid losing ECG when RIMP/CO2 arrive after
+  const latestByType = useMemo(() => {
+    const map = new Map();
+    waveforms.forEach(w => {
+      if (w.waveform?.name) {
+        map.set(w.waveform.name, w);
+      }
+    });
+    return map;
+  }, [waveforms]);
 
-  // Find specific waveform types (check all recent waveforms)
+  // Find specific waveform types from the per-type map
   const findWaveform = (names) => {
-    for (let i = recentWaveforms.length - 1; i >= 0; i--) {
-      const w = recentWaveforms[i];
-      if (w.waveform && names.some(name => 
-        w.waveform.name === name || 
-        w.waveform.name?.includes(name)
-      )) {
-        return w;
+    for (const name of names) {
+      // Exact match first
+      if (latestByType.has(name)) return latestByType.get(name);
+      // Partial match
+      for (const [key, value] of latestByType) {
+        if (key.includes(name)) return value;
       }
     }
     return null;
   };
 
-  // Get ECG waveforms - try multiple lead types
-  const ecgWaveform = findWaveform(['II', 'I', 'III', 'ECG', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']);
-  
+  // Get ECG waveforms - try multiple lead types (NOT RIMP/CO2)
+  const ecgWaveform = findWaveform(['II', 'I', 'III', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']);
+
   // Get SpO2 waveform
   const spo2Waveform = findWaveform(['SpO2', 'SPO2', 'Spo2']);
 
-  // Fallback: if no specific waveforms found, use any recent waveform for ECG
-  const fallbackECG = ecgWaveform || (recentWaveforms.length > 0 ?
-    recentWaveforms[recentWaveforms.length - 1] : null);
+  // No fallback to RIMP/CO2 — only show real ECG leads
+  const fallbackECG = ecgWaveform;
 
   return (
     <>
@@ -136,7 +142,7 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
             <div>
               <div className="font-mono font-bold text-white">{information?.deviceId || 'Unknown'}</div>
               <div className="text-xs text-gray-400">
-                {information?.groupName || 'ICU'} - {getHospitalName(information?.groupName)} • Bed: {information?.bedId || 'N/A'}
+                {information?.groupName || 'ICU'} - {getHospitalName(information?.groupName)} 
               </div>
               {information?.patientId && information.patientId !== `PT${information.deviceId?.substring(0, 6)}` && (
                 <div className="text-xs text-icu-green font-mono mt-0.5">

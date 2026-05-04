@@ -26,8 +26,8 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
   const [waveformType, setWaveformType] = useState('ECG');
   
   // Configuration
-  const MIN_BUFFER_SIZE = 800;//400;
-  const DISPLAY_WIDTH = 600;//250;
+  const MIN_BUFFER_SIZE = 200;
+  const DISPLAY_WIDTH = 600;
   const POINTS_PER_SECOND = 60;//40;
   const MAX_BUFFER_SIZE = 10000; // Prevent memory issues
 
@@ -121,8 +121,13 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
           
           // Initialize display buffer if empty
           if (displayBufferRef.current.length === 0) {
-            displayBufferRef.current = dataBufferRef.current.slice(-DISPLAY_WIDTH);
-            displayIndexRef.current = Math.max(0, dataBufferRef.current.length - DISPLAY_WIDTH);
+            const available = dataBufferRef.current.slice(-DISPLAY_WIDTH);
+            // Pad front with nulls if we have less data than display width
+            const padding = DISPLAY_WIDTH - available.length;
+            displayBufferRef.current = padding > 0
+              ? [...new Array(padding).fill(null), ...available]
+              : available;
+            displayIndexRef.current = dataBufferRef.current.length;
           }
         }
         
@@ -277,11 +282,11 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
 
           // Initialize range ONCE from the first batch of data
           if (!currentRange.initialized && dataBufferRef.current.length >= MIN_BUFFER_SIZE) {
-            // Use first 3000 points to establish baseline range
+            // Use available points to establish baseline range
             const initWindow = dataBufferRef.current.slice(0, Math.min(3000, dataBufferRef.current.length));
             const validInitData = initWindow.filter(v => v !== null && !isNaN(v));
 
-            if (validInitData.length > 100) {
+            if (validInitData.length > 50) {
               const sorted = [...validInitData].sort((a, b) => a - b);
 
               // Use 2nd-98th percentile to establish a stable baseline

@@ -1,10 +1,24 @@
 // consumer.js - Updated Kafka consumer with ES modules
 import { Kafka, logLevel } from 'kafkajs';
 import fs from 'fs';
+import path from 'path';
 import axios from 'axios';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+// File logger for vitals/waveform investigation
+const logsDir = path.resolve('logs');
+if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+const vitalsLogStream = fs.createWriteStream(path.join(logsDir, 'vitals.log'), { flags: 'a' });
+const waveformLogStream = fs.createWriteStream(path.join(logsDir, 'waveform.log'), { flags: 'a' });
+
+function logVitals(msg) {
+    vitalsLogStream.write(`[${new Date().toISOString()}] ${msg}\n`);
+}
+function logWaveform(msg) {
+    waveformLogStream.write(`[${new Date().toISOString()}] ${msg}\n`);
+}
 
 class FixedNKDHSConsumer {
     constructor() {
@@ -158,9 +172,18 @@ class FixedNKDHSConsumer {
                 }
                 
                 this.messageCount++;
-                
+
+                // Log raw vital signs data for HR/SpO2 investigation
+                const vsArray = data.VS || [];
+                const hrVital = vsArray.find(v => v.name === 'HR');
+                const spo2Vital = vsArray.find(v => v.name === 'SpO2');
+                const rrVital = vsArray.find(v => v.name === 'RR');
+                const tempVital = vsArray.find(v => v.name === 'Tskin');
+
+                logVitals(`VITALS [${data.information?.deviceId}] HR=${hrVital?.value ?? 'N/A'} SpO2=${spo2Vital?.value ?? 'N/A'} RR=${rrVital?.value ?? 'N/A'} Temp=${tempVital?.value ?? 'N/A'} | timestamp=${data.information?.timeStamp} | allVS=${JSON.stringify(vsArray.map(v => ({ name: v.name, value: v.value })))}`);
+
                 if (this.messageCount % 20 === 0) {
-                    console.log(`💓 VITAL SIGNS: Device=${data.information?.deviceId} Patient=${data.information?.patientId} Count=${this.messageCount} `);
+                    console.log(`💓 Message count: ${this.messageCount}`);
                 }
 
                 const success = await this.sendToBridge('/kafka/vitals', {
@@ -200,9 +223,11 @@ class FixedNKDHSConsumer {
                 const patientId = data.information?.patientId;
                 const waveformName = data.waveform?.name;
 
-                if (this.messageCount % 50 === 0) {
-                    console.log(`📊 WAVEFORM [${waveformName}]: Device=${deviceId} Patient=${patientId}`);
-                }
+                // Log waveform data details for investigation
+                const waveformData = data.waveform?.data;
+                const dataPoints = waveformData ? waveformData.split(',').length : 0;
+                const sampleRate = data.waveform?.sampleRate;
+                logWaveform(`WAVEFORM [${waveformName}]: Device=${deviceId} sampleRate=${sampleRate} dataPoints=${dataPoints} | first10=${waveformData ? waveformData.split(',').slice(0, 10).join(',') : 'N/A'} | timestamp=${data.information?.timeStamp}`);
 
                 const success = await this.sendToBridge('/kafka/waveform', {
                     topic: messageInfo.topic,

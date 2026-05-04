@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { X, User, Activity, AlertTriangle, Heart, Droplet, Thermometer, Wind } from 'lucide-react';
 import WaveformChart from './WaveformChart';
 
@@ -25,25 +26,36 @@ const PatientDetailModal = ({ patient, waveforms = [], alerts = [], onClose }) =
     return vital?.value || '--';
   };
 
-  // Get recent waveforms
-  const recentWaveforms = waveforms.slice(-5);
+  // Keep the latest waveform per type (name) to avoid losing ECG when RIMP/CO2 arrive after
+  const latestByType = useMemo(() => {
+    const map = new Map();
+    waveforms.forEach(w => {
+      if (w.waveform?.name) {
+        map.set(w.waveform.name, w);
+      }
+    });
+    return map;
+  }, [waveforms]);
 
+  // Find specific waveform types from the per-type map
   const findWaveform = (names) => {
-    for (let i = recentWaveforms.length - 1; i >= 0; i--) {
-      const w = recentWaveforms[i];
-      if (w.waveform && names.some(name => 
-        w.waveform.name === name || 
-        w.waveform.name?.includes(name)
-      )) {
-        return w;
+    for (const name of names) {
+      // Exact match first
+      if (latestByType.has(name)) return latestByType.get(name);
+      // Partial match
+      for (const [key, value] of latestByType) {
+        if (key.includes(name)) return value;
       }
     }
     return null;
   };
 
-  const ecgWaveform = findWaveform(['II', 'I', 'III', 'ECG', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']);
+  // Get ECG waveforms - try multiple lead types (NOT RIMP/CO2)
+  const ecgWaveform = findWaveform(['II', 'I', 'III', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']);
   const spo2Waveform = findWaveform(['SpO2', 'SPO2', 'Spo2']);
-  const fallbackECG = ecgWaveform || (recentWaveforms.length > 0 ? recentWaveforms[recentWaveforms.length - 1] : null);
+
+  // No fallback to RIMP/CO2 — only show real ECG leads
+  const fallbackECG = ecgWaveform;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -57,7 +69,7 @@ const PatientDetailModal = ({ patient, waveforms = [], alerts = [], onClose }) =
             <div>
               <h2 className="text-lg font-bold text-white font-mono">{information?.deviceId || 'Unknown'}</h2>
               <p className="text-gray-400 text-xs">
-                {information?.groupName || 'ICU'} - {getHospitalName(information?.groupName)} • Bed: {information?.bedId || 'N/A'}
+                {information?.groupName || 'ICU'} - {getHospitalName(information?.groupName)}
               </p>
               {information?.patientId && information.patientId !== `PT${information.deviceId?.substring(0, 6)}` && (
                 <p className="text-icu-green font-mono text-xs">

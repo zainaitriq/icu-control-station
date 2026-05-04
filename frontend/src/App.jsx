@@ -4,15 +4,20 @@ import { useWebSocket } from './hooks/useWebSocket';
 import PatientCard from './components/PatientCard';
 import { usePatientAlerts } from './hooks/usePatientAlerts';
 import { Activity, Wifi, WifiOff, Clock, Database, Bell, AlertTriangle, Volume2, VolumeX } from 'lucide-react';
+
 function App() {
-  const { isConnected, patients, waveforms } = useWebSocket('ws://localhost:8081');
+  // Construct WebSocket URL dynamically based on current hostname
+  const hostname = window.location.hostname;
+  const wsUrl = import.meta.env.VITE_WS_URL || "ws://" + hostname + ":8081";
+  const { isConnected, patients, waveforms } = useWebSocket(wsUrl);
   const [selectedFilter, setSelectedFilter] = useState('ALL');
   const [waitingTime, setWaitingTime] = useState(0);
   const [isGlobalMuted, setIsGlobalMuted] = useState(true);
   const [showCriticalTooltip, setShowCriticalTooltip] = useState(false);
   const [showWarningTooltip, setShowWarningTooltip] = useState(false);
   const [showNormalTooltip, setShowNormalTooltip] = useState(false);
-
+  const [currentPage, setCurrentPage] = useState(1);
+  const patientsPerPage = 6;
 
   // Track waiting time
   useEffect(() => {
@@ -189,6 +194,22 @@ function App() {
     if (selectedFilter === 'ALL') return patientsArray;
     return patientsArray.filter(p => p.information?.groupName === selectedFilter);
   }, [patientsArray, selectedFilter]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filteredPatients.length / patientsPerPage));
+  const paginatedPatients = useMemo(() => {
+    const start = (currentPage - 1) * patientsPerPage;
+    return filteredPatients.slice(start, start + patientsPerPage);
+  }, [filteredPatients, currentPage, patientsPerPage]);
+
+  // Reset to page 1 when filter changes or if current page exceeds total
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages, currentPage]);
 
   const formatWaitTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -460,8 +481,9 @@ function App() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredPatients.map(patient => (
+          <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {paginatedPatients.map(patient => (
               <PatientCard
                 key={patient.information.deviceId}
                 patient={patient}
@@ -470,6 +492,45 @@ function App() {
               />
             ))}
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-3 mt-6">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 rounded-lg font-semibold bg-icu-card border border-icu-border text-white hover:border-icu-green/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`w-9 h-9 rounded-lg font-semibold transition-all ${
+                      currentPage === page
+                        ? 'bg-icu-green text-black'
+                        : 'bg-icu-card border border-icu-border text-white hover:border-icu-green/50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-4 py-2 rounded-lg font-semibold bg-icu-card border border-icu-border text-white hover:border-icu-green/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+              <span className="text-sm text-gray-400 ml-3">
+                Showing {(currentPage - 1) * patientsPerPage + 1}-{Math.min(currentPage * patientsPerPage, filteredPatients.length)} of {filteredPatients.length}
+              </span>
+            </div>
+          )}
+          </>
         )}
       </div>
     </div>
