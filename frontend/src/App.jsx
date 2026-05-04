@@ -10,7 +10,8 @@ function App() {
   const hostname = window.location.hostname;
   const wsUrl = import.meta.env.VITE_WS_URL || "ws://" + hostname + ":8081";
   const { isConnected, patients, waveforms } = useWebSocket(wsUrl);
-  const [selectedFilter, setSelectedFilter] = useState('ALL');
+  // const [selectedFilter, setSelectedFilter] = useState('ALL'); // ALL tab removed
+  const [selectedFilter, setSelectedFilter] = useState('TGH');
   const [waitingTime, setWaitingTime] = useState(0);
   const [isGlobalMuted, setIsGlobalMuted] = useState(true);
   const [showCriticalTooltip, setShowCriticalTooltip] = useState(false);
@@ -52,7 +53,7 @@ function App() {
   // Get filter counts
   const filterCounts = useMemo(() => {
     const counts = {
-      ALL: patientsArray.length,
+      // ALL: patientsArray.length, // ALL tab removed
       TGH: 0,
       MNGH: 0,
       RGH: 0,
@@ -191,7 +192,7 @@ function App() {
 
   // Filter patients by selected location
   const filteredPatients = useMemo(() => {
-    if (selectedFilter === 'ALL') return patientsArray;
+    // if (selectedFilter === 'ALL') return patientsArray; // ALL tab removed
     return patientsArray.filter(p => p.information?.groupName === selectedFilter);
   }, [patientsArray, selectedFilter]);
 
