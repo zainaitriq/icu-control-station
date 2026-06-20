@@ -3,7 +3,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$VERSION = "1.0.0"
+$VERSION = "1.0.1"
 $PACKAGE_NAME = "icu-control-station-v$VERSION"
 $BUILD_DIR = ".\build"
 
