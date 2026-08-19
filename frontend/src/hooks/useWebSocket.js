@@ -21,25 +21,32 @@ export const useWebSocket = (url) => {
     // Batch updates - only update state every 100ms instead of on every message
     const flushPendingUpdates = () => {
       if (pendingPatientsRef.current.size > 0) {
+        // Snapshot-then-swap rather than clearing the ref from inside the
+        // updater: React (in StrictMode) invokes state updater functions
+        // twice to check purity. Mutating a ref inside the updater made the
+        // second invocation see an already-cleared map and silently drop
+        // the update.
+        const updates = pendingPatientsRef.current;
+        pendingPatientsRef.current = new Map();
         setPatients(prev => {
           const newMap = new Map(prev);
-          pendingPatientsRef.current.forEach((patient, deviceId) => {
+          updates.forEach((patient, deviceId) => {
             newMap.set(deviceId, patient);
           });
-          pendingPatientsRef.current.clear();
           return newMap;
         });
       }
 
       if (pendingWaveformsRef.current.size > 0) {
+        const updates = pendingWaveformsRef.current;
+        pendingWaveformsRef.current = new Map();
         setWaveforms(prev => {
           const newMap = new Map(prev);
-          pendingWaveformsRef.current.forEach((waveformUpdates, deviceId) => {
+          updates.forEach((waveformUpdates, deviceId) => {
             const existing = prev.get(deviceId) || [];
-            const updated = [...existing, ...waveformUpdates].slice(-100);
-            newMap.set(deviceId, updated);
+            const merged = [...existing, ...waveformUpdates].slice(-100);
+            newMap.set(deviceId, merged);
           });
-          pendingWaveformsRef.current.clear();
           return newMap;
         });
       }
@@ -74,7 +81,7 @@ export const useWebSocket = (url) => {
         ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
-            
+
             if (message.type === 'initial') {
               // Initial data load - apply immediately
               const patientMap = new Map();
@@ -92,13 +99,36 @@ export const useWebSocket = (url) => {
             } else if (message.type === 'waveform') {
               // Batch waveform updates
               const deviceId = message.data.information.deviceId;
-              
+
+              // Stamp receivedAt on every incoming frame (keep the server's
+              // value if it already set one) so staleness can be evaluated
+              // on a clock, not just on message arrival.
+              const stampedData = {
+                ...message.data,
+                receivedAt: message.data.receivedAt ?? Date.now(),
+              };
+
               if (!pendingWaveformsRef.current.has(deviceId)) {
                 pendingWaveformsRef.current.set(deviceId, []);
               }
-              pendingWaveformsRef.current.get(deviceId).push(message.data);
-              
+              pendingWaveformsRef.current.get(deviceId).push(stampedData);
+
               scheduleUpdate();
+
+            } else if (message.type === 'patient_changed') {
+              // A new patient was admitted on this device — drop any
+              // buffered waveforms so the new patient never inherits the
+              // previous patient's trace.
+              const deviceId = message.deviceId;
+
+              pendingWaveformsRef.current.delete(deviceId);
+
+              setWaveforms(prev => {
+                if (!prev.has(deviceId)) return prev;
+                const newMap = new Map(prev);
+                newMap.delete(deviceId);
+                return newMap;
+              });
             }
           } catch (error) {
             console.error('Error parsing WebSocket message:', error);

@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 
-export const usePatientAlerts = (patient, waveforms, isMuted = true) => {
+// streams: the resolved { ECG, SpO2, RIMP, CO2 } stream states from
+// buildStreamStates() (utils/signalState.js) — the single source of truth
+// for whether a channel currently has real signal. When a stream is
+// faulted (sensor off, invalid, stale, lost) we raise a non-clinical
+// TECHNICAL alert instead of running clinical analysis on it — there is no
+// signal to analyse, so doing so was the source of the false CRITICAL
+// "ECG: Flatline" alarms on beds with a disconnected lead.
+export const usePatientAlerts = (patient, waveforms, isMuted = true, streams = null) => {
   const [alerts, setAlerts] = useState([]);
   const lastAlertTimeRef = useRef({});
   const alertSoundRef = useRef(null);
@@ -71,10 +78,25 @@ export const usePatientAlerts = (patient, waveforms, isMuted = true) => {
     const ecgWaveform = findWaveform(['II', 'I', 'III', 'ECG', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']);
     const spo2Waveform = findWaveform(['SpO2', 'SPO2', 'Spo2']);
 
-    // Analyze ECG waveform
-    if (ecgWaveform) {
+    const ecgStream = streams?.ECG;
+    const spo2Stream = streams?.SpO2;
+
+    // ECG: a faulted stream (lead off / invalid / stale / lost) gets a
+    // TECHNICAL alert and is never handed to clinical analysis — there is
+    // no signal to analyse. A stream the device never sends (NO_DATA,
+    // isFault === false) raises nothing at all. Only a genuinely LIVE
+    // stream runs the existing clinical checks, untouched.
+    if (ecgStream?.isFault) {
+      newAlerts.push({
+        type: 'TECHNICAL',
+        category: 'ECG_SENSOR',
+        message: `ECG: ${ecgStream.message || ecgStream.label}`,
+        icon: '🔌',
+        sound: false
+      });
+    } else if (ecgStream?.state === 'LIVE' && ecgWaveform) {
       const ecgAnalysis = analyzeWaveform(ecgWaveform, 'ECG');
-      
+
       if (ecgAnalysis) {
         if (ecgAnalysis.range < 5) {
           newAlerts.push({
@@ -104,20 +126,20 @@ export const usePatientAlerts = (patient, waveforms, isMuted = true) => {
           });
         }
       }
-    } else {
-      newAlerts.push({
-        type: 'WARNING',
-        category: 'NO_ECG',
-        message: 'No ECG Signal Detected',
-        icon: '📡',
-        sound: false
-      });
     }
 
-    // Analyze SpO2 waveform
-    if (spo2Waveform) {
+    // SpO2: same technical/clinical split as ECG above.
+    if (spo2Stream?.isFault) {
+      newAlerts.push({
+        type: 'TECHNICAL',
+        category: 'SPO2_SENSOR',
+        message: `SpO2: ${spo2Stream.message || spo2Stream.label}`,
+        icon: '🔌',
+        sound: false
+      });
+    } else if (spo2Stream?.state === 'LIVE' && spo2Waveform) {
       const spo2Analysis = analyzeWaveform(spo2Waveform, 'SPO2');
-      
+
       if (spo2Analysis) {
         if (spo2Analysis.range < 3) {
           newAlerts.push({
@@ -138,14 +160,6 @@ export const usePatientAlerts = (patient, waveforms, isMuted = true) => {
           });
         }
       }
-    } else {
-      newAlerts.push({
-        type: 'WARNING',
-        category: 'NO_SPO2',
-        message: 'No SpO2 Signal Detected',
-        icon: '📡',
-        sound: false
-      });
     }
 
     // Check device connection status
@@ -186,7 +200,7 @@ export const usePatientAlerts = (patient, waveforms, isMuted = true) => {
     });
 
     setAlerts(newAlerts);
-  }, [patient, waveforms, isMuted]);
+  }, [patient, waveforms, isMuted, streams]);
 
   const playAlertSound = (type) => {
     // Create audio context if not exists
