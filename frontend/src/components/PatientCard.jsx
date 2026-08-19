@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react';
-import { User, Activity, AlertTriangle, Maximize2 } from 'lucide-react';
+import { User, Activity, AlertTriangle, Maximize2, Radio } from 'lucide-react';
 import WaveformChart from './WaveformChart';
 import { usePatientAlerts } from '../hooks/usePatientAlerts';
+import { useNow } from '../hooks/useNow';
+import { buildStreamStates } from '../utils/signalState';
 import PatientDetailModal from './PatientDetailModal';
 
 // Hospital name mapping
@@ -21,11 +23,46 @@ const getHospitalName = (groupName) => {
   return HOSPITAL_NAMES[groupName] || groupName;
 };
 
+const SOURCE_STRIP_CHANNELS = [
+  { kind: 'ECG', label: 'ECG' },
+  { kind: 'SpO2', label: 'SpO2' },
+  { kind: 'RIMP', label: 'RESP' },
+  { kind: 'CO2', label: 'CO2' },
+];
+
+const TONE_CLASSES = {
+  green: 'bg-icu-green/20 text-icu-green border-icu-green/40',
+  amber: 'bg-yellow-500/20 text-yellow-500 border-yellow-500/40',
+  grey: 'bg-gray-700/30 text-gray-500 border-gray-600/40',
+};
+
+const SourceStrip = ({ streams }) => (
+  <div className="flex flex-wrap gap-1.5 mb-3">
+    {SOURCE_STRIP_CHANNELS.map(({ kind, label }) => {
+      const streamState = streams[kind];
+      const isNA = streamState.state === 'NO_DATA';
+      const tone = isNA ? 'grey' : streamState.tone;
+      const text = isNA ? 'n/a' : streamState.label;
+      return (
+        <span
+          key={kind}
+          title={streamState.message || `${label}: ${text}`}
+          className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${TONE_CLASSES[tone]}`}
+        >
+          {label} · {text}
+        </span>
+      );
+    })}
+  </div>
+);
+
 const PatientCard = ({ patient, waveforms = [], isMuted }) => {
   const { information, VS = [], status } = patient;
-  const { alerts, hasCritical } = usePatientAlerts(patient, waveforms, isMuted);
+  const now = useNow();
+  const streams = useMemo(() => buildStreamStates(waveforms, now), [waveforms, now]);
+  const { alerts, hasCritical } = usePatientAlerts(patient, waveforms, isMuted, streams);
   const [showModal, setShowModal] = useState(false);
-  
+
   // Get vital signs by name - return '--' if not found
   const getVital = (name) => {
     if (!VS || VS.length === 0) return '--';
@@ -33,21 +70,26 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
     return vital?.value || '--';
   };
 
+  const hr = parseInt(getVital('HR'));
+  const spo2 = parseInt(getVital('SpO2'));
+  const noVitals = isNaN(hr) && isNaN(spo2);
+  // "No data from monitor" only when the two streams that actually drive
+  // clinical vitals (ECG, SpO2) are both non-live — a device that simply
+  // doesn't send RIMP/CO2 should never trip this.
+  const noDataFromMonitor = noVitals && streams.ECG.state !== 'LIVE' && streams.SpO2.state !== 'LIVE';
+
   // Determine status badge
   const getStatusColor = () => {
     // If status object exists and explicitly says not connected
     if (status && status.connected === 0) return 'bg-gray-500';
     if (status?.comfortCare === 1) return 'bg-purple-500';
-    
-    // Check if we have vital signs to determine status
-    const hr = parseInt(getVital('HR'));
-    const spo2 = parseInt(getVital('SpO2'));
-    
+    if (noDataFromMonitor) return 'bg-gray-500';
+
     // If we have waveforms but no vitals, show monitoring (blue)
     if (isNaN(hr) || isNaN(spo2)) {
-      return waveforms.length > 0 ? 'bg-icu-blue' : 'bg-gray-600';
+      return streams.ECG.state === 'LIVE' || streams.SpO2.state === 'LIVE' ? 'bg-icu-blue' : 'bg-gray-600';
     }
-    
+
     if (hr < 40 || hr > 120 || spo2 < 90) return 'bg-icu-critical';
     if (hr < 50 || hr > 100 || spo2 < 95) return 'bg-icu-warning';
     return 'bg-icu-green';
@@ -57,15 +99,13 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
     // Only show disconnected if explicitly set to 0
     if (status && status.connected === 0) return 'DISCONNECTED';
     if (status?.comfortCare === 1) return 'COMFORT CARE';
-    
-    const hr = parseInt(getVital('HR'));
-    const spo2 = parseInt(getVital('SpO2'));
-    
+    if (noDataFromMonitor) return 'NO DATA';
+
     // If we have waveforms but no vitals
     if (isNaN(hr) || isNaN(spo2)) {
-      return waveforms.length > 0 ? 'MONITORING' : 'STANDBY';
+      return streams.ECG.state === 'LIVE' || streams.SpO2.state === 'LIVE' ? 'MONITORING' : 'STANDBY';
     }
-    
+
     if (hr < 40 || hr > 120 || spo2 < 90) return 'CRITICAL';
     if (hr < 50 || hr > 100 || spo2 < 95) return 'WARNING';
     return 'NORMAL';
@@ -101,9 +141,6 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
   // Get SpO2 waveform
   const spo2Waveform = findWaveform(['SpO2', 'SPO2', 'Spo2']);
 
-  // No fallback to RIMP/CO2 — only show real ECG leads
-  const fallbackECG = ecgWaveform;
-
   return (
     <>
       <div className={`bg-icu-card rounded-lg p-4 hover:border-icu-green/30 transition-all ${
@@ -121,6 +158,8 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
                   className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold ${
                     alert.type === 'CRITICAL'
                       ? 'bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse'
+                      : alert.type === 'TECHNICAL'
+                      ? 'bg-amber-500/10 text-amber-500 border border-amber-500/40'
                       : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50'
                   }`}
                 >
@@ -134,7 +173,7 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
             <div className="h-full" />
           )}
         </div>
-        
+
         {/* Header with View Details Button */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -142,7 +181,7 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
             <div>
               <div className="font-mono font-bold text-white">{information?.deviceId || 'Unknown'}</div>
               <div className="text-xs text-gray-400">
-                {information?.groupName || 'ICU'} - {getHospitalName(information?.groupName)} 
+                {information?.groupName || 'ICU'} - {getHospitalName(information?.groupName)}
               </div>
               {information?.patientId && information.patientId !== `PT${information.deviceId?.substring(0, 6)}` && (
                 <div className="text-xs text-icu-green font-mono mt-0.5">
@@ -173,13 +212,24 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
           <VitalSign icon="🫁" label="RR" value={getVital('RR') || getVital('RR/CO2')} unit="bpm" />
         </div>
 
+        {/* Source Strip */}
+        <SourceStrip streams={streams} />
+
+        {/* No Data From Monitor Banner */}
+        {noDataFromMonitor && (
+          <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-md bg-gray-700/40 border border-gray-500/50 text-gray-300">
+            <Radio className="w-4 h-4 flex-shrink-0 text-gray-400" />
+            <span className="text-sm font-bold tracking-wide">NO DATA FROM MONITOR</span>
+          </div>
+        )}
+
         {/* ECG Waveform */}
         <div className="mb-3">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-semibold text-gray-400">
-              ECG {ecgWaveform?.waveform?.name || fallbackECG?.waveform?.name || 'II'}
+              ECG {streams.ECG.leadName || 'n/a'}
             </span>
-            {fallbackECG?.waveform?.data && (
+            {streams.ECG.state === 'LIVE' && (
               <span className="flex items-center gap-1">
                 <Activity className="w-3 h-3 text-icu-green animate-pulse-glow" />
                 <span className="text-xs text-icu-green">Live</span>
@@ -187,15 +237,16 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
             )}
           </div>
           <div className="bg-black/50 rounded-md border border-icu-border overflow-hidden">
-            <WaveformChart 
-              data={fallbackECG} 
-              color="#00ff88" 
+            <WaveformChart
+              data={ecgWaveform}
+              color="#00ff88"
               height={120}
+              signalState={streams.ECG}
             />
           </div>
           <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>25mm/s</span>
-            <span>{fallbackECG?.waveform?.data ? 'Active' : 'Waiting'}</span>
+            <span>{streams.ECG.state === 'LIVE' ? 'Active' : streams.ECG.label}</span>
             <span>10mm/mV</span>
           </div>
         </div>
@@ -204,7 +255,7 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
         <div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-semibold text-gray-400">SpO2</span>
-            {spo2Waveform?.waveform?.data && (
+            {streams.SpO2.state === 'LIVE' && (
               <span className="flex items-center gap-1">
                 <Activity className="w-3 h-3 text-icu-blue animate-pulse-glow" />
                 <span className="text-xs text-icu-blue">Live</span>
@@ -212,15 +263,16 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
             )}
           </div>
           <div className="bg-black/50 rounded-md border border-icu-border overflow-hidden">
-            <WaveformChart 
-              data={spo2Waveform} 
-              color="#00a8ff" 
+            <WaveformChart
+              data={spo2Waveform}
+              color="#00a8ff"
               height={100}
+              signalState={streams.SpO2}
             />
           </div>
           <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>25mm/s</span>
-            <span>{spo2Waveform?.waveform?.data ? 'Active' : 'Waiting'}</span>
+            <span>{streams.SpO2.state === 'LIVE' ? 'Active' : streams.SpO2.label}</span>
             <span>10mm/mV</span>
           </div>
         </div>
@@ -232,6 +284,7 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
           patient={patient}
           waveforms={waveforms}
           alerts={alerts}
+          streams={streams}
           onClose={() => setShowModal(false)}
         />
       )}
@@ -241,12 +294,12 @@ const PatientCard = ({ patient, waveforms = [], isMuted }) => {
 
 const VitalSign = ({ icon, label, value, unit }) => {
   const isNoData = value === '--' || value === 'undefined' || !value;
-  
+
   // Determine if value is abnormal
   const numValue = parseFloat(value);
   let isAbnormal = false;
   let isCritical = false;
-  
+
   if (!isNaN(numValue)) {
     if (label === 'HR') {
       isCritical = numValue < 40 || numValue > 120;
@@ -260,12 +313,12 @@ const VitalSign = ({ icon, label, value, unit }) => {
       isAbnormal = numValue < 8 || numValue > 25;
     }
   }
-  
+
   return (
     <div className={`bg-black/30 rounded-md p-2 border transition-all ${
-      isCritical 
-        ? 'border-red-500 bg-red-500/10' 
-        : isAbnormal 
+      isCritical
+        ? 'border-red-500 bg-red-500/10'
+        : isAbnormal
         ? 'border-yellow-500 bg-yellow-500/10'
         : 'border-icu-border/50'
     }`}>
@@ -280,11 +333,11 @@ const VitalSign = ({ icon, label, value, unit }) => {
       </div>
       <div className="flex items-baseline gap-1">
         <span className={`text-lg font-bold font-mono ${
-          isNoData 
-            ? 'text-gray-600' 
-            : isCritical 
-            ? 'text-red-500 animate-pulse' 
-            : isAbnormal 
+          isNoData
+            ? 'text-gray-600'
+            : isCritical
+            ? 'text-red-500 animate-pulse'
+            : isAbnormal
             ? 'text-yellow-500'
             : 'text-white'
         }`}>

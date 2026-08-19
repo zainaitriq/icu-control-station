@@ -17,7 +17,7 @@ const getHospitalName = (groupName) => {
   return HOSPITAL_NAMES[groupName] || groupName;
 };
 
-const PatientDetailModal = ({ patient, waveforms = [], alerts = [], onClose }) => {
+const PatientDetailModal = ({ patient, waveforms = [], alerts = [], streams, onClose }) => {
   const { information, VS = [] } = patient;
 
   const getVital = (name) => {
@@ -54,8 +54,8 @@ const PatientDetailModal = ({ patient, waveforms = [], alerts = [], onClose }) =
   const ecgWaveform = findWaveform(['II', 'I', 'III', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']);
   const spo2Waveform = findWaveform(['SpO2', 'SPO2', 'Spo2']);
 
-  // No fallback to RIMP/CO2 — only show real ECG leads
-  const fallbackECG = ecgWaveform;
+  const ecgStream = streams?.ECG;
+  const spo2Stream = streams?.SpO2;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -100,6 +100,8 @@ const PatientDetailModal = ({ patient, waveforms = [], alerts = [], onClose }) =
                   className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-semibold ${
                     alert.type === 'CRITICAL'
                       ? 'bg-red-500/20 text-red-400 border border-red-500/50'
+                      : alert.type === 'TECHNICAL'
+                      ? 'bg-amber-500/10 text-amber-500 border border-amber-500/40'
                       : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50'
                   }`}
                 >
@@ -210,9 +212,9 @@ const PatientDetailModal = ({ patient, waveforms = [], alerts = [], onClose }) =
           <div className="mb-3">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-semibold text-gray-300">
-                ECG {ecgWaveform?.waveform?.name || fallbackECG?.waveform?.name || 'II'}
+                ECG {ecgStream?.leadName || 'n/a'}
               </span>
-              {fallbackECG?.waveform?.data && (
+              {ecgStream?.state === 'LIVE' && (
                 <span className="flex items-center gap-1">
                   <Activity className="w-3 h-3 text-icu-green animate-pulse-glow" />
                   <span className="text-xs text-icu-green font-semibold">Live</span>
@@ -220,15 +222,16 @@ const PatientDetailModal = ({ patient, waveforms = [], alerts = [], onClose }) =
               )}
             </div>
             <div className="bg-black/50 rounded border border-icu-green/50 overflow-hidden">
-              <WaveformChart 
-                data={fallbackECG} 
-                color="#00ff88" 
+              <WaveformChart
+                data={ecgWaveform}
+                color="#00ff88"
                 height={140}
+                signalState={ecgStream}
               />
             </div>
             <div className="flex justify-between text-xs text-gray-500 mt-1">
               <span>25mm/s</span>
-              <span>{fallbackECG?.waveform?.data ? 'Active' : 'Waiting'}</span>
+              <span>{ecgStream?.state === 'LIVE' ? 'Active' : (ecgStream?.label || 'Waiting')}</span>
               <span>10mm/mV</span>
             </div>
           </div>
@@ -237,7 +240,7 @@ const PatientDetailModal = ({ patient, waveforms = [], alerts = [], onClose }) =
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-semibold text-gray-300">SpO2 Plethysmograph</span>
-              {spo2Waveform?.waveform?.data && (
+              {spo2Stream?.state === 'LIVE' && (
                 <span className="flex items-center gap-1">
                   <Activity className="w-3 h-3 text-icu-blue animate-pulse-glow" />
                   <span className="text-xs text-icu-blue font-semibold">Live</span>
@@ -245,15 +248,16 @@ const PatientDetailModal = ({ patient, waveforms = [], alerts = [], onClose }) =
               )}
             </div>
             <div className="bg-black/50 rounded border border-icu-blue/50 overflow-hidden">
-              <WaveformChart 
-                data={spo2Waveform} 
-                color="#00a8ff" 
+              <WaveformChart
+                data={spo2Waveform}
+                color="#00a8ff"
                 height={140}
+                signalState={spo2Stream}
               />
             </div>
             <div className="flex justify-between text-xs text-gray-500 mt-1">
               <span>25mm/s</span>
-              <span>{spo2Waveform?.waveform?.data ? 'Active' : 'Waiting'}</span>
+              <span>{spo2Stream?.state === 'LIVE' ? 'Active' : (spo2Stream?.label || 'Waiting')}</span>
               <span>10mm/mV</span>
             </div>
           </div>
