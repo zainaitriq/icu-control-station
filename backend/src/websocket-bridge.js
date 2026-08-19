@@ -45,13 +45,20 @@ class DashboardBridge {
                 patients: Array.from(this.patientData.values())
             }));
 
-            // Send accumulated waveform data for each patient
+            // Send accumulated waveform data for each patient — but only
+            // frames recent enough to still be trustworthy. A browser that
+            // opens after the feed has died must not receive a chart that
+            // looks live; each replayed frame keeps its real receivedAt so
+            // the client's own staleness clock stays correct.
+            const replayCutoff = Date.now() - 10000;
             this.waveformData.forEach((waveforms, deviceId) => {
                 waveforms.forEach(waveform => {
-                    ws.send(JSON.stringify({
-                        type: 'waveform',
-                        data: waveform
-                    }));
+                    if ((waveform.receivedAt ?? 0) >= replayCutoff) {
+                        ws.send(JSON.stringify({
+                            type: 'waveform',
+                            data: waveform
+                        }));
+                    }
                 });
             });
 
@@ -95,9 +102,11 @@ class DashboardBridge {
     }
 
     ensurePatientExists(deviceId, patientInfo) {
-        if (!this.patientData.has(deviceId)) {
+        const existing = this.patientData.get(deviceId);
+
+        if (!existing) {
             const groupName = this.extractGroupName(patientInfo, deviceId);
-            
+
             this.patientData.set(deviceId, {
                 information: {
                     deviceId: deviceId,
@@ -122,8 +131,22 @@ class DashboardBridge {
                 VS: [],
                 lastUpdate: Date.now()
             });
-            
+
             console.log(`📝 Created patient: ${deviceId} → Group: ${groupName}`);
+            return;
+        }
+
+        // FIXED: a device is keyed by deviceId, but a bed can be reassigned
+        // to a different admitted patient. Without this, waveformData was
+        // never cleared on patientId change, so a newly admitted patient
+        // inherited the previous patient's trace.
+        const incomingPatientId = patientInfo?.patientId;
+        const storedPatientId = existing.information.patientId;
+
+        if (incomingPatientId && storedPatientId && incomingPatientId !== storedPatientId) {
+            this.waveformData.delete(deviceId);
+            this.broadcast({ type: 'patient_changed', deviceId });
+            console.log(`🔄 Patient changed on ${deviceId}: ${storedPatientId} → ${incomingPatientId}`);
         }
     }
 
@@ -230,6 +253,11 @@ class DashboardBridge {
                     patient.lastUpdate = Date.now();
                     patient.information.timeStamp = Date.now();
                 }
+
+                // Stamp receivedAt so clients can evaluate staleness on a
+                // clock, and so a client connecting later only replays
+                // frames that are still recent (see setupWebSocket).
+                data.receivedAt = Date.now();
 
                 // Store waveform data
                 if (!this.waveformData.has(deviceId)) {

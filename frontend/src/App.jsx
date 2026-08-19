@@ -73,13 +73,19 @@ function App() {
 
   // Get status counts
   const statusCounts = useMemo(() => {
-    let normal = 0, warning = 0, critical = 0;
+    let normal = 0, warning = 0, critical = 0, noData = 0;
 
     patientsArray.forEach(patient => {
-      const hr = parseInt(patient.VS?.find(v => v.name === 'HR')?.value || 0);
-      const spo2 = parseInt(patient.VS?.find(v => v.name === 'SpO2')?.value || 0);
+      // No `|| 0` fallback: parseInt('---') is NaN and must stay NaN so a
+      // bed with no usable vitals routes to noData instead of silently
+      // becoming a false "Normal" (0 bpm / 0% would read as critical, and a
+      // missing value becoming 0 with the old `|| 0` fallback masked that).
+      const hr = parseInt(patient.VS?.find(v => v.name === 'HR')?.value);
+      const spo2 = parseInt(patient.VS?.find(v => v.name === 'SpO2')?.value);
 
-      if (hr < 40 || hr > 120 || spo2 < 90) {
+      if (Number.isNaN(hr) && Number.isNaN(spo2)) {
+        noData++;
+      } else if (hr < 40 || hr > 120 || spo2 < 90) {
         critical++;
       } else if (hr < 50 || hr > 100 || spo2 < 95) {
         warning++;
@@ -88,7 +94,7 @@ function App() {
       }
     });
 
-    return { normal, warning, critical };
+    return { normal, warning, critical, noData };
   }, [patientsArray]);
 
   // Get critical patients by ICU/hospital group
@@ -326,10 +332,14 @@ function App() {
 
       {/* Status Summary */}
       <div className="px-6 py-4">
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-5 gap-4">
           <div className="bg-icu-card border border-icu-border rounded-lg p-4">
             <div className="text-sm text-gray-400 mb-1">Total Patients</div>
             <div className="text-3xl font-bold">{patientsArray.length}</div>
+          </div>
+          <div className="bg-icu-card border border-gray-500/20 rounded-lg p-4">
+            <div className="text-sm text-gray-400 mb-1">No Data</div>
+            <div className="text-3xl font-bold text-gray-400">{statusCounts.noData}</div>
           </div>
           <div
             className="bg-icu-card border border-green-500/20 rounded-lg p-4 relative cursor-pointer hover:border-green-500/50 transition-all"

@@ -1,15 +1,68 @@
 import { useEffect, useRef, useState } from 'react';
 
-const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
+const NO_SIGNAL_COLORS = {
+  amber: '#f59e0b',
+  grey: '#6b7280',
+  green: '#00ff88',
+};
+
+function drawNoSignalPanel(ctx, width, canvasHeight, signalState, fallbackColor) {
+  const tone = signalState?.tone || 'grey';
+  const toneColor = NO_SIGNAL_COLORS[tone] || fallbackColor;
+
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, width, canvasHeight);
+
+  // Diagonal hatching — visually distinct from any physiological trace.
+  ctx.save();
+  ctx.strokeStyle = toneColor;
+  ctx.globalAlpha = 0.1;
+  ctx.lineWidth = 1;
+  const spacing = 16;
+  for (let x = -canvasHeight; x < width; x += spacing) {
+    ctx.beginPath();
+    ctx.moveTo(x, canvasHeight);
+    ctx.lineTo(x + canvasHeight, 0);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Dashed baseline — dashed so it can never be mistaken for a flatline ECG.
+  const centerY = canvasHeight / 2;
+  ctx.save();
+  ctx.strokeStyle = toneColor;
+  ctx.globalAlpha = 0.6;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(0, centerY);
+  ctx.lineTo(width, centerY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  ctx.fillStyle = toneColor;
+  ctx.font = 'bold 14px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(signalState?.label || 'NO DATA', width / 2, centerY - 16);
+
+  if (signalState?.message) {
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '11px monospace';
+    ctx.fillText(signalState.message, width / 2, centerY + 22);
+  }
+}
+
+const WaveformChart = ({ data, color = '#00ff88', height = 120, signalState = null }) => {
   const canvasRef = useRef(null);
-  
+
   // Data buffer - stores incoming data in a circular buffer
   const dataBufferRef = useRef([]);
-  
+
   // Display buffer - what we're currently showing
   const displayBufferRef = useRef([]);
   const displayIndexRef = useRef(0);
-  
+
   const animationRef = useRef(null);
   const lastFrameTimeRef = useRef(Date.now());
   const lastDataReceivedRef = useRef(Date.now());
@@ -24,7 +77,11 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
   const [isBuffering, setIsBuffering] = useState(true);
   const [hasData, setHasData] = useState(false);
   const [waveformType, setWaveformType] = useState('ECG');
-  
+
+  // signalState is the single source of truth (see utils/signalState.js) for
+  // whether this channel currently has a real, live trace to show.
+  const showNoSignalPanel = signalState ? signalState.drawTrace === false : false;
+
   // Configuration
   const MIN_BUFFER_SIZE = 200;
   const DISPLAY_WIDTH = 600;
@@ -46,37 +103,49 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
   // Smoothing function
   const smoothData = (dataArray, windowSize = 2, passes = 1) => {
     if (dataArray.length < windowSize || windowSize < 2) return dataArray;
-    
+
     let result = [...dataArray];
-    
+
     for (let pass = 0; pass < passes; pass++) {
       const smoothed = new Array(result.length);
-      
+
       for (let i = 0; i < result.length; i++) {
         let sum = 0;
         let count = 0;
-        
+
         for (let j = Math.max(0, i - windowSize); j <= Math.min(result.length - 1, i + windowSize); j++) {
           if (result[j] !== null && !isNaN(result[j])) {
             sum += result[j];
             count++;
           }
         }
-        
+
         smoothed[i] = count > 0 ? sum / count : result[i];
       }
-      
+
       result = smoothed;
     }
-    
+
     return result;
   };
 
   // COLLECT data from Kafka - this keeps running as new data arrives
   useEffect(() => {
+    if (showNoSignalPanel) {
+      // Sensor is known bad/stale/absent — clear buffers so a stopped
+      // stream never keeps scrolling and a resumed signal never blends
+      // with stale samples from before the fault.
+      dataBufferRef.current = [];
+      displayBufferRef.current = [];
+      displayIndexRef.current = 0;
+      setIsBuffering(true);
+      setHasData(false);
+      return;
+    }
+
     if (data && data.waveform && data.waveform.data) {
       let newData = [];
-      
+
       if (typeof data.waveform.data === 'string') {
         newData = data.waveform.data
           .split(',')
@@ -98,27 +167,27 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         } else {
           newData = smoothData(newData, 2, 2);
         }
-        
+
         // Add to buffer
         dataBufferRef.current = [...dataBufferRef.current, ...newData];
-        
+
         // Keep buffer at reasonable size - use circular buffer concept
         if (dataBufferRef.current.length > MAX_BUFFER_SIZE) {
           const overflow = dataBufferRef.current.length - MAX_BUFFER_SIZE;
           dataBufferRef.current = dataBufferRef.current.slice(overflow);
-          
+
           // Adjust display index to account for removed data
           displayIndexRef.current = Math.max(0, displayIndexRef.current - overflow);
         }
-        
+
         // Update last data received time
         lastDataReceivedRef.current = Date.now();
-        
+
         // Check if we have enough data to start rendering
         if (dataBufferRef.current.length >= MIN_BUFFER_SIZE) {
           setIsBuffering(false);
           setHasData(true);
-          
+
           // Initialize display buffer if empty
           if (displayBufferRef.current.length === 0) {
             const available = dataBufferRef.current.slice(-DISPLAY_WIDTH);
@@ -130,14 +199,9 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
             displayIndexRef.current = dataBufferRef.current.length;
           }
         }
-        
-        // Log data reception every 1000 data points
-        if (dataBufferRef.current.length % 1000 === 0) {
-        //  console.log(`[${data?.information?.deviceId}] Buffer size: ${dataBufferRef.current.length}, Display at: ${displayIndexRef.current}`);
-        }
       }
     }
-  }, [data, MIN_BUFFER_SIZE, DISPLAY_WIDTH, waveformType, MAX_BUFFER_SIZE]);
+  }, [data, showNoSignalPanel, MIN_BUFFER_SIZE, DISPLAY_WIDTH, waveformType, MAX_BUFFER_SIZE]);
 
   // RENDER animation loop
   useEffect(() => {
@@ -149,19 +213,16 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
     const canvasHeight = canvas.height;
 
     let accumulatedTime = 0;
-    let frameCount = 0;
 
     const drawFrame = () => {
       const currentTime = Date.now();
       const deltaTime = (currentTime - lastFrameTimeRef.current) / 1000;
       lastFrameTimeRef.current = currentTime;
-      
-      frameCount++;
-      
-      // Log every 600 frames (~10 seconds at 60fps)
-      if (frameCount % 600 === 0) {
-        const timeSinceData = Math.floor((currentTime - lastDataReceivedRef.current) / 1000);
-       // console.log(`[${data?.information?.deviceId || 'Unknown'}] Frame ${frameCount}, Buffer: ${dataBufferRef.current.length}, Display: ${displayBufferRef.current.length}, Index: ${displayIndexRef.current}, Last data: ${timeSinceData}s ago`);
+
+      if (showNoSignalPanel) {
+        drawNoSignalPanel(ctx, width, canvasHeight, signalState, color);
+        animationRef.current = requestAnimationFrame(drawFrame);
+        return;
       }
 
       // Enable high-quality rendering
@@ -173,26 +234,21 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
 
       // Calculate how many points to advance
       const pointsToAdvance = Math.floor(accumulatedTime * POINTS_PER_SECOND);
-      
+
       if (pointsToAdvance > 0 && !isBuffering) {
         accumulatedTime = 0;
-        
+
         const stepSize = waveformType === 'SPO2' ? 2 : 1;
 
         for (let i = 0; i < pointsToAdvance; i++) {
-          // Always cycle through available data progressively
-          if (dataBufferRef.current.length > 0) {
-            // Wrap around to the beginning when reaching the end
-            if (displayIndexRef.current >= dataBufferRef.current.length) {
-              // Reset index to continue from the start of the buffer
-              displayIndexRef.current = 0;
-            }
-
-            // Always use progressive shift/push to maintain smooth continuity
+          if (dataBufferRef.current.length > 0 && displayIndexRef.current < dataBufferRef.current.length) {
             displayBufferRef.current.shift();
             displayBufferRef.current.push(dataBufferRef.current[displayIndexRef.current]);
             displayIndexRef.current += stepSize;
           }
+          // else: buffer exhausted — hold the trace rather than wrapping
+          // around and replaying it, which would make a stopped stream
+          // look like a live patient.
         }
       }
 
@@ -229,18 +285,18 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         ctx.lineTo(width, y);
         ctx.stroke();
       }
-      
+
       // Major grid lines
       ctx.strokeStyle = '#2a3342';
       ctx.lineWidth = 1;
-      
+
       for (let x = 0; x < width; x += 100) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, canvasHeight);
         ctx.stroke();
       }
-      
+
       for (let y = 0; y < canvasHeight; y += 100) {
         ctx.beginPath();
         ctx.moveTo(0, y);
@@ -254,22 +310,22 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         ctx.fillStyle = '#4a5568';
         ctx.font = '12px monospace';
         ctx.textAlign = 'center';
-        
+
         const progress = Math.min(100, Math.floor((dataBufferRef.current.length / MIN_BUFFER_SIZE) * 100));
         ctx.fillText(`Buffering... ${progress}%`, width / 2, centerY);
-        
+
         // Progress bar
         const barWidth = 200;
         const barHeight = 4;
         const barX = (width - barWidth) / 2;
         const barY = centerY + 10;
-        
+
         ctx.strokeStyle = '#4a5568';
         ctx.strokeRect(barX, barY, barWidth, barHeight);
-        
+
         ctx.fillStyle = color;
         ctx.fillRect(barX, barY, barWidth * (progress / 100), barHeight);
-        
+
       } else if (hasData && displayBufferRef.current.length > 0) {
         const validData = displayBufferRef.current.filter(v => v !== null && !isNaN(v));
 
@@ -306,8 +362,6 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
               currentRange.max = baseMax + padding;
               currentRange.lastUpdate = Date.now();
               currentRange.initialized = true;
-
-              console.log(`[${waveformType}] Fixed Y-axis range initialized: [${currentRange.min.toFixed(1)}, ${currentRange.max.toFixed(1)}]`);
             }
           }
 
@@ -342,7 +396,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
           ctx.lineWidth = waveformType === 'SPO2' ? 2.5 : 2.2;
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
-          
+
           ctx.beginPath();
 
           const step = width / displayBufferRef.current.length;
@@ -385,7 +439,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
           ctx.shadowBlur = 12;
           ctx.shadowColor = color;
           ctx.stroke();
-          
+
           ctx.shadowBlur = 6;
           ctx.stroke();
           ctx.shadowBlur = 0;
@@ -419,7 +473,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [color, height, isBuffering, hasData, MIN_BUFFER_SIZE, POINTS_PER_SECOND, DISPLAY_WIDTH, waveformType, data]);
+  }, [color, height, isBuffering, hasData, MIN_BUFFER_SIZE, POINTS_PER_SECOND, DISPLAY_WIDTH, waveformType, data, showNoSignalPanel, signalState]);
 
   return (
     <canvas
@@ -427,7 +481,7 @@ const WaveformChart = ({ data, color = '#00ff88', height = 120 }) => {
       width={800}
       height={height}
       className="w-full"
-      style={{ 
+      style={{
         imageRendering: 'auto',
         filter: 'contrast(1.1) brightness(1.05)'
       }}
