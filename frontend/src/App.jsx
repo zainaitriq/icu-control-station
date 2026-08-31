@@ -57,7 +57,7 @@ function App() {
       TGH: 0,
       MNGH: 0,
       RGH: 0,
-      AISH: 0,
+      AIGH: 0,
       MFG: 0
     };
 
@@ -232,7 +232,7 @@ function App() {
           <div className="flex items-center gap-3">
             <Activity className="w-8 h-8 text-icu-green" />
             <div>
-              <h1 className="text-2xl font-bold">Experia</h1>
+              <h1 className="text-2xl font-bold">JDHC</h1>
               <p className="text-sm text-gray-400">Real-time Patient Monitoring</p>
             </div>
           </div>

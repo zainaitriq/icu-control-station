@@ -1,0 +1,17 @@
+{
+  "name": "icu-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/consumer.js",
+    "bridge": "node src/websocket-bridge.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "kafkajs": "^2.2.4",
+    "axios": "^1.6.2",
+    "ws": "^8.14.2"
+  }
+}

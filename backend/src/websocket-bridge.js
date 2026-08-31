@@ -81,7 +81,7 @@ class DashboardBridge {
             const kafkaGroup = patientInfo.groupName.toUpperCase().trim();
             
             // If it's a known hospital code, use it
-            if (['TGH', 'MNGH', 'RGH', 'AISH', 'MFG'].includes(kafkaGroup)) {
+            if (['TGH', 'MNGH', 'RGH', 'AIGH', 'MFG'].includes(kafkaGroup)) {
                 return kafkaGroup;
             }
         }
@@ -90,7 +90,7 @@ class DashboardBridge {
         if (deviceId.includes('TGH')) return 'TGH';
         if (deviceId.includes('MNGH')) return 'MNGH';
         if (deviceId.includes('RGH')) return 'RGH';
-        if (deviceId.includes('AIGH')) return 'AISH';
+        if (deviceId.includes('AIGH') || deviceId.includes('AISH')) return 'AIGH';
         if (deviceId.includes('MFG')) return 'MFG';
         
         // Priority 3: Use pattern match

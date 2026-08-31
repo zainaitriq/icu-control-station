@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const BRIDGE_URL = 'http://localhost:8081';
 
-const hospitals = ['TGH', 'MNGH', 'RGH', 'AISH', 'MFG'];
+const hospitals = ['TGH', 'MNGH', 'RGH', 'AIGH', 'MFG'];
 const deviceIds = [
   '2004939691', '9542003175', '9282005907', '9811012691',
   '9472005129', '9402003212', '9502002478'
